@@ -1,0 +1,11 @@
+# md files
+*.md
+
+# downloaded models
+whisper-package/models/*
+
+# secrets
+keys.txt
+
+# build artifacts
+gateway/gateway
