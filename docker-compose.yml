@@ -1,0 +1,49 @@
+services:
+  whisper:
+    build:
+      context: ./whisper-package
+      dockerfile: Dockerfile
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: Dockerfile
+    ports:
+      - "9090:9090"
+    environment:
+      - PORT=9090
+      - WHISPER_HOST=whisper
+      - WHISPER_PORT=8080
+      - KEYS_FILE=/run/secrets/keys.txt
+      - MAX_FILE_SIZE_MB=25
+      - RATE_LIMIT_PER_KEY=60
+      - RATE_LIMIT_PER_IP=30
+      - NUM_WORKERS=1
+      - MAX_QUEUE_SIZE=50
+      - WHISPER_TIMEOUT_SEC=600
+      - WRITE_TIMEOUT_SEC=30
+    volumes:
+      - ./keys.txt:/run/secrets/keys.txt:ro
+    depends_on:
+      whisper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - internal
+
+networks:
+  internal:
+    driver: bridge

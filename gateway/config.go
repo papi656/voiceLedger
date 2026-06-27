@@ -9,41 +9,53 @@ import (
 )
 
 type Config struct {
-	GatewayPort     string
-	KeysFile        string
-	APIKeys         []string
-	RateLimitPerKey int
-	RateLimitPerIP  int
-	RateBurstPerKey int
-	RateBurstPerIP  int
-	MaxFileSizeMB   int
-	AllowedFormats  []string
-	WhisperHost     string
-	WhisperPort     string
-	MaxBodySizeMB   int
-	ReadTimeoutSec  int
-	WriteTimeoutSec int
-	IdleTimeoutSec  int
-	ProxyTimeoutSec int
+	GatewayPort           string
+	KeysFile              string
+	APIKeys               []string
+	RateLimitPerKey       int
+	RateLimitPerIP        int
+	RateBurstPerKey       int
+	RateBurstPerIP        int
+	MaxFileSizeMB         int
+	AllowedFormats        []string
+	WhisperHost           string
+	WhisperPort           string
+	MaxBodySizeMB         int
+	ReadTimeoutSec        int
+	WriteTimeoutSec       int
+	IdleTimeoutSec        int
+	WhisperTimeoutSec     int
+	ConvertTimeoutSec     int
+	FFMPEGPath            string
+	NumWorkers            int
+	MaxQueueSize          int
+	JobTTLSec             int
+	JobCleanupIntervalSec int
 }
 
 func LoadConfig() *Config {
 	cfg := &Config{
-		GatewayPort:     envStr("PORT", "9090"),
-		KeysFile:        envStr("KEYS_FILE", "keys.txt"),
-		RateLimitPerKey: envInt("RATE_LIMIT_PER_KEY", 60),
-		RateLimitPerIP:  envInt("RATE_LIMIT_PER_IP", 30),
-		RateBurstPerKey: envInt("RATE_BURST_PER_KEY", 60),
-		RateBurstPerIP:  envInt("RATE_BURST_PER_IP", 30),
-		MaxFileSizeMB:   envInt("MAX_FILE_SIZE_MB", 25),
-		WhisperHost:     envStr("WHISPER_HOST", "whisper"),
-		WhisperPort:     envStr("WHISPER_PORT", "8080"),
-		MaxBodySizeMB:   envInt("MAX_BODY_SIZE_MB", 30),
-		ReadTimeoutSec:  envInt("READ_TIMEOUT_SEC", 10),
-		WriteTimeoutSec: envInt("WRITE_TIMEOUT_SEC", 600),
-		IdleTimeoutSec:  envInt("IDLE_TIMEOUT_SEC", 120),
-		ProxyTimeoutSec: envInt("PROXY_TIMEOUT_SEC", 600),
-		AllowedFormats:  splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
+		GatewayPort:           envStr("PORT", "9090"),
+		KeysFile:              envStr("KEYS_FILE", "keys.txt"),
+		RateLimitPerKey:       envInt("RATE_LIMIT_PER_KEY", 60),
+		RateLimitPerIP:        envInt("RATE_LIMIT_PER_IP", 30),
+		RateBurstPerKey:       envInt("RATE_BURST_PER_KEY", 60),
+		RateBurstPerIP:        envInt("RATE_BURST_PER_IP", 30),
+		MaxFileSizeMB:         envInt("MAX_FILE_SIZE_MB", 25),
+		WhisperHost:           envStr("WHISPER_HOST", "whisper"),
+		WhisperPort:           envStr("WHISPER_PORT", "8080"),
+		MaxBodySizeMB:         envInt("MAX_BODY_SIZE_MB", 30),
+		ReadTimeoutSec:        envInt("READ_TIMEOUT_SEC", 10),
+		WriteTimeoutSec:       envInt("WRITE_TIMEOUT_SEC", 30),
+		IdleTimeoutSec:        envInt("IDLE_TIMEOUT_SEC", 120),
+		WhisperTimeoutSec:     envInt("WHISPER_TIMEOUT_SEC", 600),
+		ConvertTimeoutSec:     envInt("CONVERT_TIMEOUT_SEC", 120),
+		FFMPEGPath:            envStr("FFMPEG_PATH", "ffmpeg"),
+		NumWorkers:            envInt("NUM_WORKERS", 1),
+		MaxQueueSize:          envInt("MAX_QUEUE_SIZE", 50),
+		JobTTLSec:             envInt("JOB_TTL_SEC", 3600),
+		JobCleanupIntervalSec: envInt("JOB_CLEANUP_INTERVAL_SEC", 300),
+		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
 	}
 
 	cfg.APIKeys = loadKeys(cfg.KeysFile)

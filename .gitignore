@@ -9,3 +9,22 @@ keys.txt
 
 # build artifacts
 gateway/gateway
+
+# audio files
+*.wav
+*.mp3
+*.ogg
+*.opus
+*.m4a
+*.flac
+*.aac
+*.wma
+*.aiff
+*.aif
+
+# whisper compiled artifacts
+whisper-package/*.dylib
+whisper-package/whisper-server
+
+# os junk
+.DS_Store
