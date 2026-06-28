@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"log"
 	"os"
 	"strconv"
@@ -10,8 +9,7 @@ import (
 
 type Config struct {
 	GatewayPort           string
-	KeysFile              string
-	APIKeys               []string
+	OAuthAudience         string
 	RateLimitPerKey       int
 	RateLimitPerIP        int
 	RateBurstPerKey       int
@@ -36,7 +34,7 @@ type Config struct {
 func LoadConfig() *Config {
 	cfg := &Config{
 		GatewayPort:           envStr("PORT", "9090"),
-		KeysFile:              envStr("KEYS_FILE", "keys.txt"),
+		OAuthAudience:         envStr("OAUTH_AUDIENCE", ""),
 		RateLimitPerKey:       envInt("RATE_LIMIT_PER_KEY", 60),
 		RateLimitPerIP:        envInt("RATE_LIMIT_PER_IP", 30),
 		RateBurstPerKey:       envInt("RATE_BURST_PER_KEY", 60),
@@ -58,40 +56,7 @@ func LoadConfig() *Config {
 		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
 	}
 
-	cfg.APIKeys = loadKeys(cfg.KeysFile)
-	if len(cfg.APIKeys) == 0 {
-		log.Println("WARNING: no API keys loaded — auth is disabled")
-	} else {
-		log.Printf("loaded %d API key(s) from %s", len(cfg.APIKeys), cfg.KeysFile)
-	}
-
 	return cfg
-}
-
-func loadKeys(path string) []string {
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		log.Printf("error opening keys file %s: %v", path, err)
-		return nil
-	}
-	defer f.Close()
-
-	var keys []string
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		keys = append(keys, line)
-	}
-	if err := scanner.Err(); err != nil {
-		log.Printf("error reading keys file: %v", err)
-	}
-	return keys
 }
 
 func envStr(key, fallback string) string {

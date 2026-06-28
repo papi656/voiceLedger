@@ -20,7 +20,8 @@ const (
 type Job struct {
 	ID        string          `json:"job_id"`
 	Status    string          `json:"status"`
-	KeyID     string          `json:"-"`
+	KeyID       string          `json:"-"`
+	AccessToken string          `json:"-"`
 	Filename  string          `json:"filename"`
 	WAVData   []byte          `json:"-"`
 	Result    json.RawMessage `json:"result"`

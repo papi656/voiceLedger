@@ -118,7 +118,9 @@ func rateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			keyID := "anonymous"
 			if v := r.Context().Value(keyIDKey); v != nil {
-				keyID = v.(string)
+				if user, ok := v.(UserInfo); ok {
+					keyID = user.Sub
+				}
 			}
 			ip := clientIP(r)
 

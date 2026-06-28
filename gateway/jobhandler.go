@@ -31,18 +31,23 @@ func submitJobHandler(cfg *Config, conv *Converter, queue *JobQueue, store *JobS
 
 		keyID := "anonymous"
 		if v := r.Context().Value(keyIDKey); v != nil {
-			keyID = v.(string)
+			if user, ok := v.(UserInfo); ok {
+				keyID = user.Sub
+			}
 		}
+
+		accessToken := r.Header.Get("X-Sheets-Token")
 
 		now := time.Now()
 		job := &Job{
-			ID:        generateJobID(),
-			Status:    JobQueued,
-			KeyID:     keyID,
-			Filename:  fh.Filename,
-			WAVData:   wavData,
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:          generateJobID(),
+			Status:      JobQueued,
+			KeyID:       keyID,
+			Filename:    fh.Filename,
+			WAVData:     wavData,
+			AccessToken: accessToken,
+			CreatedAt:   now,
+			UpdatedAt:   now,
 		}
 
 		store.Save(job)

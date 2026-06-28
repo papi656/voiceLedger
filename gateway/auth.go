@@ -3,22 +3,29 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
-	"strings"
+
+	"google.golang.org/api/idtoken"
 )
 
 type contextKey string
 
 const keyIDKey contextKey = "key_id"
 
-func authMiddleware(cfg *Config) func(http.Handler) http.Handler {
+// UserInfo holds Google user data extracted from the verified ID token.
+type UserInfo struct {
+	Sub     string // Google user ID (unique, stable) — used for rate limiting
+	Email   string
+	Name    string
+	Picture string
+}
+
+func authMiddleware(audience string) func(http.Handler) http.Handler {
+	devMode := audience == ""
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if len(cfg.APIKeys) == 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			header := r.Header.Get("Authorization")
 
 			if header == "" {
@@ -26,30 +33,54 @@ func authMiddleware(cfg *Config) func(http.Handler) http.Handler {
 				return
 			}
 
-			if !strings.HasPrefix(strings.ToLower(header), "bearer ") {
+			if len(header) < 8 || header[:7] != "Bearer " {
 				writeAuthError(w, "invalid Authorization format, expected Bearer")
 				return
 			}
 
-			token := strings.TrimSpace(header[7:]) // strip "Bearer "
-			if token == "" {
+			idToken := header[7:]
+			if idToken == "" {
 				writeAuthError(w, "empty token")
 				return
 			}
 
-			for _, k := range cfg.APIKeys {
-				if token == k {
-					prefix := token
-					if len(prefix) > 8 {
-						prefix = prefix[:8]
-					}
-					ctx := context.WithValue(r.Context(), keyIDKey, prefix)
+			payload, err := idtoken.Validate(r.Context(), idToken, audience)
+			if err != nil {
+				if devMode {
+					log.Printf("auth: dev mode, allowing invalid token (error: %v)", err)
+					ctx := context.WithValue(r.Context(), keyIDKey, UserInfo{
+						Sub:   "dev-user",
+						Email: "dev@localhost",
+						Name:  "Dev User",
+					})
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				}
+				log.Printf("auth: rejected (error: %v)", err)
+				writeAuthError(w, "unauthorized")
+				return
 			}
 
-			writeAuthError(w, "unauthorized")
+			user := UserInfo{
+				Sub:   payload.Subject,
+				Email: "",
+				Name:  "",
+			}
+
+			if email, ok := payload.Claims["email"].(string); ok {
+				user.Email = email
+			}
+			if name, ok := payload.Claims["name"].(string); ok {
+				user.Name = name
+			}
+			if picture, ok := payload.Claims["picture"].(string); ok {
+				user.Picture = picture
+			}
+
+			log.Printf("auth: user=%s email=%s", user.Sub, user.Email)
+
+			ctx := context.WithValue(r.Context(), keyIDKey, user)
+			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }

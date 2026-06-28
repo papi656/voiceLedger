@@ -1,8 +1,0 @@
-# Whisper Gateway — API Keys
-# One key per line. Blank lines and # comments are ignored.
-# Copy this file to keys.txt and add your own keys.
-# If keys.txt doesn't exist, auth is disabled entirely.
-
-sk-key1
-sk-key2
-sk-key3

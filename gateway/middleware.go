@@ -11,12 +11,12 @@ func buildHandler(cfg *Config, limiter *RateLimiter, conv *Converter, queue *Job
 
 	jobHandler := submitJobHandler(cfg, conv, queue, store)
 	jobHandler = rateLimitMiddleware(limiter)(jobHandler)
-	jobHandler = authMiddleware(cfg)(jobHandler)
+	jobHandler = authMiddleware(cfg.OAuthAudience)(jobHandler)
 	mux.Handle("POST /jobs", jobHandler)
 
 	statusHandler := jobStatusHandler(store)
 	statusHandler = rateLimitMiddleware(limiter)(statusHandler)
-	statusHandler = authMiddleware(cfg)(statusHandler)
+	statusHandler = authMiddleware(cfg.OAuthAudience)(statusHandler)
 	mux.Handle("GET /jobs/", statusHandler)
 
 	catchAll := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +24,7 @@ func buildHandler(cfg *Config, limiter *RateLimiter, conv *Converter, queue *Job
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(`{"error":"not found"}`))
 	})
-	mux.Handle("/", rateLimitMiddleware(limiter)(authMiddleware(cfg)(catchAll)))
+	mux.Handle("/", rateLimitMiddleware(limiter)(authMiddleware(cfg.OAuthAudience)(catchAll)))
 
 	return bodySizeLimitMiddleware(cfg)(mux)
 }
