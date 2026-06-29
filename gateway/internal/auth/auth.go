@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"google.golang.org/api/idtoken"
 )
 
-type contextKey string
+// ContextKey is the type used for context keys to avoid collisions.
+type ContextKey string
 
-const keyIDKey contextKey = "key_id"
+// KeyIDKey is the context key under which UserInfo is stored.
+const KeyIDKey ContextKey = "key_id"
 
 // UserInfo holds Google user data extracted from the verified ID token.
 type UserInfo struct {
@@ -21,7 +23,16 @@ type UserInfo struct {
 	Picture string
 }
 
-func authMiddleware(audience string) func(http.Handler) http.Handler {
+// UserFromContext extracts the UserInfo from a request context, if present.
+func UserFromContext(ctx context.Context) (UserInfo, bool) {
+	u, ok := ctx.Value(KeyIDKey).(UserInfo)
+	return u, ok
+}
+
+// AuthMiddleware returns middleware that validates a Google OAuth ID token from
+// the Authorization header. When audience is empty the middleware operates in
+// dev mode, accepting any token and injecting a fixed dev-user identity.
+func AuthMiddleware(audience string) func(http.Handler) http.Handler {
 	devMode := audience == ""
 
 	return func(next http.Handler) http.Handler {
@@ -29,18 +40,18 @@ func authMiddleware(audience string) func(http.Handler) http.Handler {
 			header := r.Header.Get("Authorization")
 
 			if header == "" {
-				writeAuthError(w, "missing Authorization header")
+				WriteAuthError(w, "missing Authorization header")
 				return
 			}
 
 			if len(header) < 8 || header[:7] != "Bearer " {
-				writeAuthError(w, "invalid Authorization format, expected Bearer")
+				WriteAuthError(w, "invalid Authorization format, expected Bearer")
 				return
 			}
 
 			idToken := header[7:]
 			if idToken == "" {
-				writeAuthError(w, "empty token")
+				WriteAuthError(w, "empty token")
 				return
 			}
 
@@ -48,7 +59,7 @@ func authMiddleware(audience string) func(http.Handler) http.Handler {
 			if err != nil {
 				if devMode {
 					log.Printf("auth: dev mode, allowing invalid token (error: %v)", err)
-					ctx := context.WithValue(r.Context(), keyIDKey, UserInfo{
+					ctx := context.WithValue(r.Context(), KeyIDKey, UserInfo{
 						Sub:   "dev-user",
 						Email: "dev@localhost",
 						Name:  "Dev User",
@@ -57,7 +68,7 @@ func authMiddleware(audience string) func(http.Handler) http.Handler {
 					return
 				}
 				log.Printf("auth: rejected (error: %v)", err)
-				writeAuthError(w, "unauthorized")
+				WriteAuthError(w, "unauthorized")
 				return
 			}
 
@@ -79,13 +90,14 @@ func authMiddleware(audience string) func(http.Handler) http.Handler {
 
 			log.Printf("auth: user=%s email=%s", user.Sub, user.Email)
 
-			ctx := context.WithValue(r.Context(), keyIDKey, user)
+			ctx := context.WithValue(r.Context(), KeyIDKey, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func writeAuthError(w http.ResponseWriter, msg string) {
+// WriteAuthError sends a JSON-encoded 401 response.
+func WriteAuthError(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})

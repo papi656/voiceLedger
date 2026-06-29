@@ -8,23 +8,51 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"gateway/internal/audio"
+	"gateway/internal/config"
+	"gateway/internal/ratelimit"
+	"gateway/internal/server"
+	"gateway/internal/transcription"
+	"gateway/internal/whisper"
 )
 
 func main() {
-	cfg := LoadConfig()
+	cfg := config.Load()
 
-	store := NewJobStore(time.Duration(cfg.JobTTLSec) * time.Second)
-	whisperClient := NewWhisperClient(cfg)
-	queue := NewJobQueue(cfg, store, whisperClient)
+	store := transcription.NewJobStore(time.Duration(cfg.JobTTLSec) * time.Second)
+	whisperClient := whisper.NewClient(
+		cfg.WhisperHost,
+		cfg.WhisperPort,
+		time.Duration(cfg.WhisperTimeoutSec)*time.Second,
+	)
+
+	queue := transcription.NewJobQueue(
+		cfg.MaxQueueSize,
+		cfg.NumWorkers,
+		time.Duration(cfg.WhisperTimeoutSec)*time.Second,
+		store,
+		whisperClient,
+	)
 
 	cleanupStop := make(chan struct{})
 	go store.StartCleanup(time.Duration(cfg.JobCleanupIntervalSec)*time.Second, cleanupStop)
 
 	queue.Start()
 
-	limiter := NewRateLimiter(cfg)
-	conv := NewConverter(cfg)
-	handler := buildHandler(cfg, limiter, conv, queue, store)
+	limiter := ratelimit.NewRateLimiter(
+		float64(cfg.RateLimitPerKey)/60.0,
+		cfg.RateBurstPerKey,
+		float64(cfg.RateLimitPerIP)/60.0,
+		cfg.RateBurstPerIP,
+	)
+
+	conv := audio.NewConverter(
+		cfg.FFMPEGPath,
+		time.Duration(cfg.ConvertTimeoutSec)*time.Second,
+	)
+
+	handler := server.BuildHandler(cfg, limiter, conv, queue, store)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.GatewayPort,
@@ -46,7 +74,7 @@ func main() {
 		defer cancel()
 
 		done := make(chan struct{})
-		go func() { queue.wg.Wait(); close(done) }()
+		go func() { queue.Wg.Wait(); close(done) }()
 		select {
 		case <-done:
 			log.Println("workers drained")

@@ -1,46 +1,50 @@
-package main
+package transcription
 
 import (
 	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
+
+	"gateway/internal/audio"
+	"gateway/internal/auth"
+	"gateway/internal/config"
+	"gateway/internal/httputil"
 )
 
-func submitJobHandler(cfg *Config, conv *Converter, queue *JobQueue, store *JobStore) http.Handler {
+// SubmitJobHandler parses the uploaded file, converts it to WAV, creates a job, and enqueues it.
+func SubmitJobHandler(cfg *config.Config, conv *audio.Converter, queue *JobQueue, store *JobStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fh, fileData, valErr := validateAndParseFile(r, cfg)
+		fh, fileData, valErr := audio.ValidateAndParseFile(r, cfg.MaxBodySizeMB, cfg.MaxFileSizeMB, cfg.AllowedFormats)
 		if valErr != nil {
-			if he, ok := valErr.(*httpError); ok {
-				writeHTTPError(w, he)
+			if he, ok := valErr.(*httputil.HTTPError); ok {
+				httputil.WriteHTTPError(w, he)
 			} else {
-				writeHTTPError(w, &httpError{http.StatusInternalServerError, "internal server error"})
+				httputil.WriteHTTPError(w, &httputil.HTTPError{http.StatusInternalServerError, "internal server error"})
 			}
 			return
 		}
 
 		wavData, convErr := conv.Convert(fh.Filename, fileData)
 		if convErr != nil {
-			if he, ok := convErr.(*httpError); ok {
-				writeHTTPError(w, he)
+			if he, ok := convErr.(*httputil.HTTPError); ok {
+				httputil.WriteHTTPError(w, he)
 			} else {
-				writeHTTPError(w, &httpError{http.StatusInternalServerError, "internal server error"})
+				httputil.WriteHTTPError(w, &httputil.HTTPError{http.StatusInternalServerError, "internal server error"})
 			}
 			return
 		}
 
 		keyID := "anonymous"
-		if v := r.Context().Value(keyIDKey); v != nil {
-			if user, ok := v.(UserInfo); ok {
-				keyID = user.Sub
-			}
+		if user, ok := auth.UserFromContext(r.Context()); ok {
+			keyID = user.Sub
 		}
 
 		accessToken := r.Header.Get("X-Sheets-Token")
 
 		now := time.Now()
 		job := &Job{
-			ID:          generateJobID(),
+			ID:          GenerateJobID(),
 			Status:      JobQueued,
 			KeyID:       keyID,
 			Filename:    fh.Filename,
@@ -75,7 +79,8 @@ func submitJobHandler(cfg *Config, conv *Converter, queue *JobQueue, store *JobS
 	})
 }
 
-func jobStatusHandler(store *JobStore) http.Handler {
+// JobStatusHandler returns the current status and result of a job by ID.
+func JobStatusHandler(store *JobStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/jobs/")
 		jobID := strings.TrimSuffix(path, "/")

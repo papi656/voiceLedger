@@ -1,4 +1,4 @@
-package main
+package ratelimit
 
 import (
 	"encoding/json"
@@ -17,6 +17,7 @@ type tokenBucket struct {
 	lastUsed time.Time
 }
 
+// RateLimiter is a two-tier token-bucket rate limiter operating per-key and per-IP.
 type RateLimiter struct {
 	mu         sync.Mutex
 	keyBuckets map[string]*tokenBucket
@@ -27,20 +28,23 @@ type RateLimiter struct {
 	ipBurst    int
 }
 
-func NewRateLimiter(cfg *Config) *RateLimiter {
+// NewRateLimiter creates a rate limiter with the given per-key and per-IP limits.
+// Rates are expressed as tokens-per-second; burst is the maximum bucket size.
+func NewRateLimiter(keyRatePerSec float64, keyBurst int, ipRatePerSec float64, ipBurst int) *RateLimiter {
 	rl := &RateLimiter{
 		keyBuckets: make(map[string]*tokenBucket),
 		ipBuckets:  make(map[string]*tokenBucket),
-		keyRate:    float64(cfg.RateLimitPerKey) / 60.0,
-		keyBurst:   cfg.RateBurstPerKey,
-		ipRate:     float64(cfg.RateLimitPerIP) / 60.0,
-		ipBurst:    cfg.RateBurstPerIP,
+		keyRate:    keyRatePerSec,
+		keyBurst:   keyBurst,
+		ipRate:     ipRatePerSec,
+		ipBurst:    ipBurst,
 	}
-	go rl.cleanup(10 * time.Minute, 30*time.Minute)
+	go rl.cleanup(10*time.Minute, 30*time.Minute)
 	return rl
 }
 
-func (rl *RateLimiter) allow(keyID, ip string) (keyOK bool, keyRemaining int, ipOK bool, ipRemaining int) {
+// Allow checks whether the given keyID and IP are allowed to proceed.
+func (rl *RateLimiter) Allow(keyID, ip string) (keyOK bool, keyRemaining int, ipOK bool, ipRemaining int) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -98,7 +102,8 @@ func (rl *RateLimiter) cleanup(interval, maxAge time.Duration) {
 	}
 }
 
-func clientIP(r *http.Request) string {
+// ClientIP extracts the client IP from the request, respecting X-Forwarded-For.
+func ClientIP(r *http.Request) string {
 	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
 		parts := strings.Split(fwd, ",")
 		return strings.TrimSpace(parts[0])
@@ -113,18 +118,16 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func rateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
+// RateLimitMiddleware returns middleware that enforces per-key and per-IP rate limits.
+// keyFn extracts the identity used for per-key limiting (e.g. user ID); it runs
+// after auth middleware has populated the request context.
+func RateLimitMiddleware(limiter *RateLimiter, keyFn func(r *http.Request) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			keyID := "anonymous"
-			if v := r.Context().Value(keyIDKey); v != nil {
-				if user, ok := v.(UserInfo); ok {
-					keyID = user.Sub
-				}
-			}
-			ip := clientIP(r)
+			keyID := keyFn(r)
+			ip := ClientIP(r)
 
-			keyOK, keyRem, ipOK, ipRem := limiter.allow(keyID, ip)
+			keyOK, keyRem, ipOK, ipRem := limiter.Allow(keyID, ip)
 
 			w.Header().Set("X-RateLimit-Limit-Key", "N/A")
 			w.Header().Set("X-RateLimit-Remaining-Key", "N/A")

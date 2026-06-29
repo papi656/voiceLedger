@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"log"
@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// Config holds all gateway configuration values sourced from environment variables.
 type Config struct {
 	GatewayPort           string
 	OAuthAudience         string
@@ -31,8 +32,9 @@ type Config struct {
 	JobCleanupIntervalSec int
 }
 
-func LoadConfig() *Config {
-	cfg := &Config{
+// Load reads environment variables and returns a populated Config with sane defaults.
+func Load() *Config {
+	return &Config{
 		GatewayPort:           envStr("PORT", "9090"),
 		OAuthAudience:         envStr("OAUTH_AUDIENCE", ""),
 		RateLimitPerKey:       envInt("RATE_LIMIT_PER_KEY", 60),
@@ -55,8 +57,6 @@ func LoadConfig() *Config {
 		JobCleanupIntervalSec: envInt("JOB_CLEANUP_INTERVAL_SEC", 300),
 		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
 	}
-
-	return cfg
 }
 
 func envStr(key, fallback string) string {

@@ -8,7 +8,7 @@
 Client (curl)
   │
   ▼
-Gateway (:9092) ──auth──▶ Google ID token verification
+Gateway (:9090 default, :9092 in this test) ──auth──▶ Google ID token verification
   │
   ▼
 Whisper Server (:8080) ──▶ ggml-medium-q8_0.bin model
@@ -98,7 +98,7 @@ Expected: any HTTP 200 response (whisper health endpoint exists).
 Start the gateway in dev mode (`OAUTH_AUDIENCE=""`) on port 9092.
 
 ```bash
-cd gateway && OAUTH_AUDIENCE="" PORT=9092 WHISPER_HOST=127.0.0.1 WHISPER_PORT=8080 NUM_WORKERS=1 go run . > /tmp/gateway.log 2>&1 &
+cd gateway && OAUTH_AUDIENCE="" PORT=9092 WHISPER_HOST=127.0.0.1 WHISPER_PORT=8080 NUM_WORKERS=1 go run ./cmd/gateway > /tmp/gateway.log 2>&1 &
 echo "gateway PID: $!"
 ```
 
@@ -219,6 +219,7 @@ Expected JSON:
   "status": "done",
   "filename": "test-audio.wav",
   "result": "...",
+  "error": "",
   "created_at": "...",
   "updated_at": "..."
 }

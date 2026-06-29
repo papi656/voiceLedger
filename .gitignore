@@ -23,3 +23,7 @@ whisper-package/whisper-server
 
 # os junk
 .DS_Store
+
+# Planning and other files
+objective.md
+PLAN.md

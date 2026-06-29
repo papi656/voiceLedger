@@ -1,4 +1,4 @@
-package main
+package auth
 
 import (
 	"context"
@@ -9,8 +9,7 @@ import (
 )
 
 func TestAuthMiddleware_DevMode_NoHeader(t *testing.T) {
-	// dev mode: audience == ""
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -30,7 +29,7 @@ func TestAuthMiddleware_DevMode_NoHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevMode_BadFormat(t *testing.T) {
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -51,11 +50,7 @@ func TestAuthMiddleware_DevMode_BadFormat(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevMode_EmptyToken(t *testing.T) {
-	// "Bearer " is exactly 7 chars, which means len(header) < 8
-	// triggers format error rather than empty token error.
-	// The empty token path guards header[7:] slicing result, which
-	// only triggers on "Bearer X" where X is empty after leading whitespace.
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -76,9 +71,8 @@ func TestAuthMiddleware_DevMode_EmptyToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevMode_PassesWithAnyToken(t *testing.T) {
-	// In dev mode (audience == ""), any token passes with dev-user identity.
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := r.Context().Value(keyIDKey).(UserInfo)
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(KeyIDKey).(UserInfo)
 		if !ok {
 			t.Fatal("expected UserInfo in context")
 		}
@@ -105,8 +99,7 @@ func TestAuthMiddleware_DevMode_PassesWithAnyToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_ProdMode_InvalidTokenReturns401(t *testing.T) {
-	// Production mode: audience != "", invalid tokens are rejected.
-	handler := authMiddleware("my-client-id.apps.googleusercontent.com")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("my-client-id.apps.googleusercontent.com")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -127,9 +120,7 @@ func TestAuthMiddleware_ProdMode_InvalidTokenReturns401(t *testing.T) {
 }
 
 func TestAuthMiddleware_ProdMode_ValidTokenPopulatesUserInfo(t *testing.T) {
-	// Production mode with audience set but idtoken.Validate will fail
-	// with no valid Google token. This test verifies the 401 path in prod.
-	handler := authMiddleware("audience")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("audience")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -143,8 +134,7 @@ func TestAuthMiddleware_ProdMode_ValidTokenPopulatesUserInfo(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevMode_NoContextWhenNoAuth(t *testing.T) {
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Should not reach here because no auth header = 401
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("handler should not be called when no auth header")
 	}))
 
@@ -159,7 +149,7 @@ func TestAuthMiddleware_DevMode_NoContextWhenNoAuth(t *testing.T) {
 
 func TestWriteAuthError(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writeAuthError(rec, "test error message")
+	WriteAuthError(rec, "test error message")
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 status, got %d", rec.Code)
@@ -185,9 +175,9 @@ func TestUserInfo_ContextKey(t *testing.T) {
 		Picture: "https://example.com/pic.jpg",
 	}
 
-	ctx := context.WithValue(context.Background(), keyIDKey, user)
+	ctx := context.WithValue(context.Background(), KeyIDKey, user)
 
-	got, ok := ctx.Value(keyIDKey).(UserInfo)
+	got, ok := ctx.Value(KeyIDKey).(UserInfo)
 	if !ok {
 		t.Fatal("failed to extract UserInfo from context")
 	}
@@ -206,12 +196,37 @@ func TestUserInfo_ContextKey(t *testing.T) {
 	}
 }
 
+func TestUserFromContext(t *testing.T) {
+	user := UserInfo{
+		Sub:   "12345",
+		Email: "test@example.com",
+		Name:  "Test User",
+	}
+
+	ctx := context.WithValue(context.Background(), KeyIDKey, user)
+	got, ok := UserFromContext(ctx)
+
+	if !ok {
+		t.Fatal("UserFromContext returned false")
+	}
+	if got.Sub != "12345" {
+		t.Fatalf("expected Sub=12345, got %s", got.Sub)
+	}
+	if got.Email != "test@example.com" {
+		t.Fatalf("expected Email, got %s", got.Email)
+	}
+
+	_, ok = UserFromContext(context.Background())
+	if ok {
+		t.Fatal("expected false for empty context")
+	}
+}
+
 func TestAuthMiddleware_DevMode_NotBearerPrefix(t *testing.T) {
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	// "bearer" lowercase — the new code checks exact "Bearer " prefix
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "bearer fake-token")
 	rec := httptest.NewRecorder()
@@ -223,8 +238,8 @@ func TestAuthMiddleware_DevMode_NotBearerPrefix(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevMode_ExactBearerPrefix(t *testing.T) {
-	handler := authMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, ok := r.Context().Value(keyIDKey).(UserInfo)
+	handler := AuthMiddleware("")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, ok := r.Context().Value(KeyIDKey).(UserInfo)
 		if !ok {
 			t.Fatal("expected UserInfo in context")
 		}
