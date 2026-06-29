@@ -27,3 +27,6 @@ whisper-package/whisper-server
 # Planning and other files
 objective.md
 PLAN.md
+expose-internet.md
+whisper-build-explanation.md
+docs/authPlan.md

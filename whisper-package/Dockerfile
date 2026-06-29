@@ -1,22 +1,29 @@
-FROM ubuntu:22.04 AS builder
+FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git build-essential cmake \
+    curl libgomp1 \
     && rm -rf /var/lib/apt/lists/*
-WORKDIR /build
-RUN git clone https://github.com/ggerganov/whisper.cpp.git --depth 1
-WORKDIR /build/whisper.cpp
-RUN cmake -B build -DCMAKE_BUILD_TYPE=Release
-RUN cmake --build build --config Release -j$(nproc) --target whisper-server
 
-FROM ubuntu:22.04
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 libstdc++6 curl \
-    && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /build/whisper.cpp/build/bin/whisper-server /usr/local/bin/
-COPY --from=builder /build/whisper.cpp/build/src/libwhisper.so* /usr/local/lib/
-COPY --from=builder /build/whisper.cpp/build/ggml/src/libggml*.so* /usr/local/lib/
-RUN ldconfig
+COPY whisper-server-linux /usr/local/bin/whisper-server
+
+COPY libwhisper.so.1.9.1 \
+     libggml.so.0.15.3 \
+     libggml-base.so.0.15.3 \
+     libggml-cpu.so.0.15.3 \
+     /usr/local/lib/
+
+RUN cd /usr/local/lib && \
+    ln -s libwhisper.so.1.9.1 libwhisper.so.1 && \
+    ln -s libwhisper.so.1 libwhisper.so && \
+    ln -s libggml.so.0.15.3 libggml.so.0 && \
+    ln -s libggml.so.0 libggml.so && \
+    ln -s libggml-base.so.0.15.3 libggml-base.so.0 && \
+    ln -s libggml-base.so.0 libggml-base.so && \
+    ln -s libggml-cpu.so.0.15.3 libggml-cpu.so.0 && \
+    ln -s libggml-cpu.so.0 libggml-cpu.so && \
+    ldconfig
+
 COPY models /models
+
 EXPOSE 8080
 ENV HOST=0.0.0.0
 ENV PORT=8080

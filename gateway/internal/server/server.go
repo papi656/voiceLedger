@@ -47,7 +47,8 @@ func BuildHandler(
 	})
 	mux.Handle("/", ratelimit.RateLimitMiddleware(limiter, keyFn)(auth.AuthMiddleware(cfg.OAuthAudience)(catchAll)))
 
-	return BodySizeLimitMiddleware(cfg.MaxBodySizeMB)(mux)
+	handler := BodySizeLimitMiddleware(cfg.MaxBodySizeMB)(mux)
+	return CORSMiddleware(cfg.CORSAllowedOrigins)(handler)
 }
 
 func healthHandler() http.HandlerFunc {

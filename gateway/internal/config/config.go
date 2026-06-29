@@ -10,6 +10,7 @@ import (
 // Config holds all gateway configuration values sourced from environment variables.
 type Config struct {
 	GatewayPort           string
+	CORSAllowedOrigins    string
 	OAuthAudience         string
 	RateLimitPerKey       int
 	RateLimitPerIP        int
@@ -36,6 +37,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		GatewayPort:           envStr("PORT", "9090"),
+		CORSAllowedOrigins:    envStr("CORS_ALLOWED_ORIGINS", "*"),
 		OAuthAudience:         envStr("OAUTH_AUDIENCE", ""),
 		RateLimitPerKey:       envInt("RATE_LIMIT_PER_KEY", 60),
 		RateLimitPerIP:        envInt("RATE_LIMIT_PER_IP", 30),
