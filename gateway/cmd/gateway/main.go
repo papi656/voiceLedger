@@ -41,8 +41,6 @@ func main() {
 	queue.Start()
 
 	limiter := ratelimit.NewRateLimiter(
-		float64(cfg.RateLimitPerKey)/60.0,
-		cfg.RateBurstPerKey,
 		float64(cfg.RateLimitPerIP)/60.0,
 		cfg.RateBurstPerIP,
 	)

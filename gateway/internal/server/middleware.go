@@ -6,7 +6,7 @@ import (
 )
 
 // CORSMiddleware adds CORS headers and handles preflight (OPTIONS) requests.
-// It must be the outermost middleware so preflight never reaches auth.
+// It must be the outermost middleware so preflight never reaches the handler.
 // allowedOrigins can be "*" for development or a comma-separated list of origins.
 func CORSMiddleware(allowedOrigins string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -18,8 +18,8 @@ func CORSMiddleware(allowedOrigins string) func(http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Sheets-Token")
-			w.Header().Set("Access-Control-Expose-Headers", "X-RateLimit-Remaining-Key, X-RateLimit-Remaining-IP, Retry-After")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Expose-Headers", "X-RateLimit-Remaining-IP, Retry-After")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 
 			if r.Method == http.MethodOptions {

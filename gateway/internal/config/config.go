@@ -11,10 +11,7 @@ import (
 type Config struct {
 	GatewayPort           string
 	CORSAllowedOrigins    string
-	OAuthAudience         string
-	RateLimitPerKey       int
 	RateLimitPerIP        int
-	RateBurstPerKey       int
 	RateBurstPerIP        int
 	MaxFileSizeMB         int
 	AllowedFormats        []string
@@ -38,10 +35,7 @@ func Load() *Config {
 	return &Config{
 		GatewayPort:           envStr("PORT", "9090"),
 		CORSAllowedOrigins:    envStr("CORS_ALLOWED_ORIGINS", "*"),
-		OAuthAudience:         envStr("OAUTH_AUDIENCE", ""),
-		RateLimitPerKey:       envInt("RATE_LIMIT_PER_KEY", 60),
 		RateLimitPerIP:        envInt("RATE_LIMIT_PER_IP", 30),
-		RateBurstPerKey:       envInt("RATE_BURST_PER_KEY", 60),
 		RateBurstPerIP:        envInt("RATE_BURST_PER_IP", 30),
 		MaxFileSizeMB:         envInt("MAX_FILE_SIZE_MB", 25),
 		WhisperHost:           envStr("WHISPER_HOST", "whisper"),

@@ -13,12 +13,13 @@ Browser / Client
 │   gateway   │────▶│  whisper-server  │
 │  (Go, :9090)│     │ (C++, :8080)     │
 │             │     │                   │
-│ • auth      │     │ • ggml-medium-q8  │
-│ • rate limit│     │ • 16kHz mono WAV  │
-│ • ffmpeg    │     │ • JSON response   │
-│ • job queue │     │                   │
+│ • rate limit│     │ • ggml-medium-q8  │
+│ • ffmpeg    │     │ • 16kHz mono WAV  │
+│ • job queue │     │ • JSON response   │
 └─────────────┘     └──────────────────┘
 ```
+
+> **MVP — No authentication.** All endpoints are open. IP-based rate limiting only.
 
 ## Quick start
 
@@ -35,13 +36,11 @@ curl http://localhost:9090/health
 
 # Transcribe an audio file
 curl -X POST http://localhost:9090/jobs \
-  -H "Authorization: Bearer anything" \
   -F "file=@test-fixtures/sample.m4a"
 # → {"job_id":"abc123...","status":"queued"}
 
 # Poll for result
-curl http://localhost:9090/jobs/abc123... \
-  -H "Authorization: Bearer anything"
+curl http://localhost:9090/jobs/abc123...
 # → {"job_id":"abc123...","status":"done","result":{...}}
 ```
 
@@ -50,14 +49,11 @@ curl http://localhost:9090/jobs/abc123... \
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/health` | None | Health check |
-| `POST` | `/jobs` | `Bearer <token>` | Submit audio (multipart/form-data, `file` field) |
-| `GET` | `/jobs/{id}` | `Bearer <token>` | Poll job status and result |
+| `POST` | `/jobs` | None | Submit audio (multipart/form-data, `file` field) |
+| `GET` | `/jobs/{id}` | None | Poll job status and result |
 
-**Auth modes**: set `OAUTH_AUDIENCE` (Google client ID) for production OAuth, or
-leave empty for dev mode (any token accepted).
-
-**Rate limits** (defaults): 60 req/min per user, 30 req/min per IP. Headers:
-`X-RateLimit-Remaining-Key`, `X-RateLimit-Remaining-IP`, `Retry-After`.
+**Rate limits** (default): 30 req/min per IP. Headers:
+`X-RateLimit-Remaining-IP`, `Retry-After`.
 
 ## Project structure
 
@@ -68,8 +64,7 @@ leave empty for dev mode (any token accepted).
 │   ├── internal/
 │   │   ├── config/             # Environment-based configuration
 │   │   ├── server/             # Route registration, CORS, body limits
-│   │   ├── auth/               # Google OAuth middleware
-│   │   ├── ratelimit/          # Per-key + per-IP token bucket
+│   │   ├── ratelimit/          # Per-IP token bucket rate limiting
 │   │   ├── transcription/      # Job model, store, worker queue, handlers
 │   │   ├── whisper/            # HTTP client for whisper-server
 │   │   ├── audio/              # ffmpeg converter, format validation

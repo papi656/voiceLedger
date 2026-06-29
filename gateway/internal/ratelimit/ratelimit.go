@@ -17,60 +17,48 @@ type tokenBucket struct {
 	lastUsed time.Time
 }
 
-// RateLimiter is a two-tier token-bucket rate limiter operating per-key and per-IP.
+// RateLimiter is an IP-based token-bucket rate limiter.
 type RateLimiter struct {
-	mu         sync.Mutex
-	keyBuckets map[string]*tokenBucket
-	ipBuckets  map[string]*tokenBucket
-	keyRate    float64
-	keyBurst   int
-	ipRate     float64
-	ipBurst    int
+	mu       sync.Mutex
+	buckets  map[string]*tokenBucket
+	rate     float64
+	burst    int
 }
 
-// NewRateLimiter creates a rate limiter with the given per-key and per-IP limits.
-// Rates are expressed as tokens-per-second; burst is the maximum bucket size.
-func NewRateLimiter(keyRatePerSec float64, keyBurst int, ipRatePerSec float64, ipBurst int) *RateLimiter {
+// NewRateLimiter creates a rate limiter with the given per-IP limits.
+// Rate is expressed as tokens-per-second; burst is the maximum bucket size.
+func NewRateLimiter(ratePerSec float64, burst int) *RateLimiter {
 	rl := &RateLimiter{
-		keyBuckets: make(map[string]*tokenBucket),
-		ipBuckets:  make(map[string]*tokenBucket),
-		keyRate:    keyRatePerSec,
-		keyBurst:   keyBurst,
-		ipRate:     ipRatePerSec,
-		ipBurst:    ipBurst,
+		buckets: make(map[string]*tokenBucket),
+		rate:    ratePerSec,
+		burst:   burst,
 	}
 	go rl.cleanup(10*time.Minute, 30*time.Minute)
 	return rl
 }
 
-// Allow checks whether the given keyID and IP are allowed to proceed.
-func (rl *RateLimiter) Allow(keyID, ip string) (keyOK bool, keyRemaining int, ipOK bool, ipRemaining int) {
+// Allow checks whether the given IP is allowed to proceed.
+func (rl *RateLimiter) Allow(ip string) (ok bool, remaining int) {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	keyOK, keyRemaining = rl.checkBucket(rl.keyBuckets, keyID, rl.keyRate, rl.keyBurst)
-	ipOK, ipRemaining = rl.checkBucket(rl.ipBuckets, ip, rl.ipRate, rl.ipBurst)
-	return
-}
-
-func (rl *RateLimiter) checkBucket(buckets map[string]*tokenBucket, id string, rate float64, burst int) (bool, int) {
-	b, exists := buckets[id]
+	b, exists := rl.buckets[ip]
 	if !exists {
 		b = &tokenBucket{
-			tokens:   float64(burst),
-			burst:    burst,
-			rate:     rate,
+			tokens:   float64(rl.burst),
+			burst:    rl.burst,
+			rate:     rl.rate,
 			lastFill: time.Now(),
 			lastUsed: time.Now(),
 		}
-		buckets[id] = b
+		rl.buckets[ip] = b
 	}
 
 	now := time.Now()
 	elapsed := now.Sub(b.lastFill).Seconds()
-	b.tokens += elapsed * rate
-	if b.tokens > float64(burst) {
-		b.tokens = float64(burst)
+	b.tokens += elapsed * rl.rate
+	if b.tokens > float64(rl.burst) {
+		b.tokens = float64(rl.burst)
 	}
 	b.lastFill = now
 	b.lastUsed = now
@@ -88,14 +76,9 @@ func (rl *RateLimiter) cleanup(interval, maxAge time.Duration) {
 	for range ticker.C {
 		rl.mu.Lock()
 		cutoff := time.Now().Add(-maxAge)
-		for id, b := range rl.keyBuckets {
+		for id, b := range rl.buckets {
 			if b.lastUsed.Before(cutoff) {
-				delete(rl.keyBuckets, id)
-			}
-		}
-		for id, b := range rl.ipBuckets {
-			if b.lastUsed.Before(cutoff) {
-				delete(rl.ipBuckets, id)
+				delete(rl.buckets, id)
 			}
 		}
 		rl.mu.Unlock()
@@ -118,23 +101,18 @@ func ClientIP(r *http.Request) string {
 	return host
 }
 
-// RateLimitMiddleware returns middleware that enforces per-key and per-IP rate limits.
-// keyFn extracts the identity used for per-key limiting (e.g. user ID); it runs
-// after auth middleware has populated the request context.
-func RateLimitMiddleware(limiter *RateLimiter, keyFn func(r *http.Request) string) func(http.Handler) http.Handler {
+// RateLimitMiddleware returns middleware that enforces per-IP rate limits.
+func RateLimitMiddleware(limiter *RateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			keyID := keyFn(r)
 			ip := ClientIP(r)
 
-			keyOK, keyRem, ipOK, ipRem := limiter.Allow(keyID, ip)
+			ok, remaining := limiter.Allow(ip)
 
-			w.Header().Set("X-RateLimit-Limit-Key", "N/A")
-			w.Header().Set("X-RateLimit-Remaining-Key", "N/A")
 			w.Header().Set("X-RateLimit-Limit-IP", "N/A")
 			w.Header().Set("X-RateLimit-Remaining-IP", "N/A")
 
-			if !keyOK || !ipOK {
+			if !ok {
 				w.Header().Set("Retry-After", "60")
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
@@ -143,8 +121,7 @@ func RateLimitMiddleware(limiter *RateLimiter, keyFn func(r *http.Request) strin
 				})
 				return
 			}
-			_ = keyRem
-			_ = ipRem
+			_ = remaining
 
 			next.ServeHTTP(w, r)
 		})

@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"gateway/internal/audio"
-	"gateway/internal/auth"
 	"gateway/internal/config"
 	"gateway/internal/httputil"
+	"gateway/internal/ratelimit"
 )
 
 // SubmitJobHandler parses the uploaded file, converts it to WAV, creates a job, and enqueues it.
@@ -35,23 +35,15 @@ func SubmitJobHandler(cfg *config.Config, conv *audio.Converter, queue *JobQueue
 			return
 		}
 
-		keyID := "anonymous"
-		if user, ok := auth.UserFromContext(r.Context()); ok {
-			keyID = user.Sub
-		}
-
-		accessToken := r.Header.Get("X-Sheets-Token")
-
 		now := time.Now()
 		job := &Job{
-			ID:          GenerateJobID(),
-			Status:      JobQueued,
-			KeyID:       keyID,
-			Filename:    fh.Filename,
-			WAVData:     wavData,
-			AccessToken: accessToken,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:        GenerateJobID(),
+			Status:    JobQueued,
+			KeyID:     ratelimit.ClientIP(r),
+			Filename:  fh.Filename,
+			WAVData:   wavData,
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 
 		store.Save(job)

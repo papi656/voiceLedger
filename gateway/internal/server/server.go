@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"gateway/internal/audio"
-	"gateway/internal/auth"
 	"gateway/internal/config"
 	"gateway/internal/ratelimit"
 	"gateway/internal/transcription"
@@ -23,21 +22,12 @@ func BuildHandler(
 
 	mux.HandleFunc("GET /health", healthHandler())
 
-	keyFn := func(r *http.Request) string {
-		if user, ok := auth.UserFromContext(r.Context()); ok {
-			return user.Sub
-		}
-		return "anonymous"
-	}
-
 	jobHandler := transcription.SubmitJobHandler(cfg, conv, queue, store)
-	jobHandler = ratelimit.RateLimitMiddleware(limiter, keyFn)(jobHandler)
-	jobHandler = auth.AuthMiddleware(cfg.OAuthAudience)(jobHandler)
+	jobHandler = ratelimit.RateLimitMiddleware(limiter)(jobHandler)
 	mux.Handle("POST /jobs", jobHandler)
 
 	statusHandler := transcription.JobStatusHandler(store)
-	statusHandler = ratelimit.RateLimitMiddleware(limiter, keyFn)(statusHandler)
-	statusHandler = auth.AuthMiddleware(cfg.OAuthAudience)(statusHandler)
+	statusHandler = ratelimit.RateLimitMiddleware(limiter)(statusHandler)
 	mux.Handle("GET /jobs/", statusHandler)
 
 	catchAll := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +35,7 @@ func BuildHandler(
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte(`{"error":"not found"}`))
 	})
-	mux.Handle("/", ratelimit.RateLimitMiddleware(limiter, keyFn)(auth.AuthMiddleware(cfg.OAuthAudience)(catchAll)))
+	mux.Handle("/", ratelimit.RateLimitMiddleware(limiter)(catchAll))
 
 	handler := BodySizeLimitMiddleware(cfg.MaxBodySizeMB)(mux)
 	return CORSMiddleware(cfg.CORSAllowedOrigins)(handler)
