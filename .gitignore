@@ -1,5 +1,13 @@
 # downloaded models
 whisper-package/models/*
+llm-package/models/*
+
+# compiled llm artifacts
+llm-package/llama-server
+llm-package/llama-server-linux
+llm-package/*.dylib
+llm-package/lib*.so
+llm-package/lib*.so.*
 
 
 # build artifacts
@@ -30,3 +38,4 @@ docs/PLAN.md
 docs/expose-internet.md
 docs/whisper-build-explanation.md
 docs/authPlan.md
+docs/frontend-handover.md

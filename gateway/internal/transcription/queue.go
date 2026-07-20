@@ -2,9 +2,12 @@ package transcription
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"sync"
 	"time"
+
+	"gateway/internal/llm"
 )
 
 // Transcriber is the interface for sending audio to the transcription service.
@@ -14,24 +17,26 @@ type Transcriber interface {
 
 // JobQueue manages a bounded FIFO queue of jobs processed by a fixed worker pool.
 type JobQueue struct {
-	jobs           chan *Job
-	workers        int
-	store          *JobStore
-	transcriber    Transcriber
+	jobs              chan *Job
+	workers           int
+	store             *JobStore
+	transcriber       Transcriber
 	transcribeTimeout time.Duration
-	stopCh         chan struct{}
-	Wg             sync.WaitGroup
+	llmClient         *llm.Client
+	stopCh            chan struct{}
+	Wg                sync.WaitGroup
 }
 
 // NewJobQueue creates a queue with the given capacity, worker count, and dependencies.
-func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber) *JobQueue {
+func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber, llmClient *llm.Client) *JobQueue {
 	return &JobQueue{
-		jobs:           make(chan *Job, maxQueueSize),
-		workers:        numWorkers,
-		store:          store,
-		transcriber:    transcriber,
+		jobs:              make(chan *Job, maxQueueSize),
+		workers:           numWorkers,
+		store:             store,
+		transcriber:       transcriber,
 		transcribeTimeout: transcribeTimeout,
-		stopCh:         make(chan struct{}),
+		llmClient:         llmClient,
+		stopCh:            make(chan struct{}),
 	}
 }
 
@@ -78,17 +83,52 @@ func (q *JobQueue) processJob(job *Job) {
 	ctx, cancel := context.WithTimeout(context.Background(), q.transcribeTimeout)
 	defer cancel()
 
-	result, err := q.transcriber.Transcribe(ctx, job.Filename, job.WAVData)
+	whisperRaw, err := q.transcriber.Transcribe(ctx, job.Filename, job.WAVData)
+	job.WAVData = nil
 	job.UpdatedAt = time.Now()
+
 	if err != nil {
 		job.Status = JobFailed
 		job.Error = err.Error()
-		log.Printf("job %s failed: %v", job.ID, err)
-	} else {
-		job.Status = JobDone
-		job.Result = result
-		log.Printf("job %s completed", job.ID)
+		log.Printf("job %s whisper failed: %v", job.ID, err)
+		q.store.Save(job)
+		return
 	}
-	job.WAVData = nil
+
+	// Parse whisper response to get transcription text.
+	text, err := parseWhisperText(whisperRaw)
+	if err != nil {
+		log.Printf("job %s failed to parse whisper response: %v", job.ID, err)
+		text = string(whisperRaw) // fallback: use raw response as text
+	}
+
+	// Build result with transcription.
+	job.Result = &JobResult{Transcription: text}
+
+	// Run LLM extraction (best-effort — failure does not fail the job).
+	if q.llmClient != nil {
+		extraction, llmErr := q.llmClient.Extract(ctx, text)
+		if llmErr != nil {
+			log.Printf("job %s llm extraction failed: %v", job.ID, llmErr)
+		} else {
+			job.Result.Extraction = extraction
+			log.Printf("job %s extraction: price=%q place=%q category=%q", job.ID, extraction.Price, extraction.Place, extraction.Category)
+		}
+	}
+
+	job.Status = JobDone
+	job.UpdatedAt = time.Now()
 	q.store.Save(job)
+	log.Printf("job %s completed", job.ID)
+}
+
+// parseWhisperText extracts the "text" field from a whisper JSON response.
+func parseWhisperText(raw []byte) (string, error) {
+	var resp struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return "", err
+	}
+	return resp.Text, nil
 }

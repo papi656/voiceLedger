@@ -11,6 +11,7 @@ import (
 
 	"gateway/internal/audio"
 	"gateway/internal/config"
+	"gateway/internal/llm"
 	"gateway/internal/ratelimit"
 	"gateway/internal/server"
 	"gateway/internal/transcription"
@@ -27,12 +28,19 @@ func main() {
 		time.Duration(cfg.WhisperTimeoutSec)*time.Second,
 	)
 
+	llmClient := llm.NewClient(
+		cfg.LLMHost,
+		cfg.LLMPort,
+		time.Duration(cfg.LLMTimeoutSec)*time.Second,
+	)
+
 	queue := transcription.NewJobQueue(
 		cfg.MaxQueueSize,
 		cfg.NumWorkers,
 		time.Duration(cfg.WhisperTimeoutSec)*time.Second,
 		store,
 		whisperClient,
+		llmClient,
 	)
 
 	cleanupStop := make(chan struct{})

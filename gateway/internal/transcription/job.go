@@ -3,9 +3,10 @@ package transcription
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"log"
 	"time"
+
+	"gateway/internal/llm"
 )
 
 // Job status constants.
@@ -16,17 +17,23 @@ const (
 	JobFailed     = "failed"
 )
 
+// JobResult holds the final output: whisper transcription + optional LLM extraction.
+type JobResult struct {
+	Transcription string          `json:"transcription"`
+	Extraction    *llm.Extraction `json:"extraction,omitempty"`
+}
+
 // Job represents a transcription request flowing through the system.
 type Job struct {
-	ID          string          `json:"job_id"`
-	Status      string          `json:"status"`
-	KeyID       string          `json:"-"`
-	Filename    string          `json:"filename"`
-	WAVData     []byte          `json:"-"`
-	Result      json.RawMessage `json:"result"`
-	Error       string          `json:"error"`
-	CreatedAt   time.Time       `json:"created_at"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	ID          string     `json:"job_id"`
+	Status      string     `json:"status"`
+	KeyID       string     `json:"-"`
+	Filename    string     `json:"filename"`
+	WAVData     []byte     `json:"-"`
+	Result      *JobResult `json:"result"`
+	Error       string     `json:"error"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // GenerateJobID produces a cryptographically random 16-character hex job ID.
