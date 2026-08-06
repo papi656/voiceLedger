@@ -8,194 +8,121 @@
 Client (curl)
   │
   ▼
-Gateway (:9090 default, :9092 in this test) ──auth──▶ Google ID token verification
-  │
-  ▼
-Whisper Server (:8080) ──▶ ggml-medium-q8_0.bin model
+┌──────────────────────────────────────┐
+│  Docker Compose (bridge network)     │
+│                                      │
+│  Gateway (:9090) ──▶ Whisper (:8080) │
+│                                      │
+│  ┌─ ffmpeg conversion                │
+│  ├─ in-memory job queue              │
+│  ├─ IP-based rate limiting           │
+│  └─ no auth (MVP)                    │
+│                                      │
+│  Whisper uses ggml-medium-q8_0.bin   │
+└──────────────────────────────────────┘
 ```
 
 ## Prerequisites (verify first)
 
-Run these checks before starting any servers:
+Run these checks before starting any containers. All paths relative to the project root (`packagedAudioTranscription/`).
 
 ```bash
-# 1. ffmpeg available
-which ffmpeg
+# 1. Docker is running
+docker info > /dev/null 2>&1 && echo "Docker: OK" || echo "Docker: NOT RUNNING"
 ```
-Expected: a path like `/opt/homebrew/bin/ffmpeg`
+Expected: `Docker: OK`
 
 ```bash
-# 2. Model file exists
+# 2. docker compose (or docker-compose) available
+docker compose version
+```
+Expected: version string (v2.x+)
+
+```bash
+# 3. Model file exists
 ls -lh whisper-package/models/ggml-medium-q8_0.bin
 ```
 Expected: file exists (~785 MB)
 
 ```bash
-# 3. Whisper server binary exists
-file whisper-package/whisper-server
+# 4. Whisper server binary exists (Linux ELF for Docker)
+file whisper-package/whisper-server-linux
 ```
-Expected: shows executable path
+Expected: shows ELF 64-bit executable (x86-64 or ARM aarch64 depending on host)
 
 ```bash
-# 4. Test audio files exist
-ls -lh test-audio.wav sample.m4a
+# 5. Test audio files exist
+ls -lh test-fixtures/test-audio.wav test-fixtures/sample.m4a
 ```
 Expected: both files exist
 
 ```bash
-# 5. Python3 available (for JSON parsing)
+# 6. Python3 available (for JSON parsing in polling loop)
 which python3
 ```
 Expected: a path
 
-```bash
-# 6. Gateway compiles
-cd gateway && go build ./... && cd ..
-```
-Expected: no output (clean build)
-
-```bash
-# 7. Unit tests pass
-cd gateway && go test -v ./... && cd ..
-```
-Expected: all tests pass, exit code 0
-
 ---
 
-## Phase 1: Start Whisper Server
+## Phase 1: Start Both Services with Docker Compose
 
-Start the whisper server in the background on port 8080.
+Build images (if not already built) and start both containers. The gateway depends on
+whisper being healthy, so `docker compose` handles the startup order automatically.
 
 ```bash
-cd whisper-package && ./whisper-server -m models/ggml-medium-q8_0.bin --host 127.0.0.1 --port 8080 > /tmp/whisper.log 2>&1 &
-echo "whisper PID: $!"
+docker compose up -d --build
 ```
 
-Wait for it to be ready by polling the health endpoint:
+Wait for both services to be healthy (gateway depends on whisper, so once gateway
+healthcheck passes, both are ready):
 
 ```bash
-for i in $(seq 1 30); do
-  if curl -sf http://127.0.0.1:8080/health > /dev/null 2>&1; then
-    echo "whisper ready after ${i}s"
+for i in $(seq 1 60); do
+  if curl -sf http://127.0.0.1:9090/health | grep -q '"ok"'; then
+    echo "services ready after ${i}s"
     break
   fi
   sleep 1
 done
 ```
 
-Verify:
+Verify gateway health:
 
 ```bash
-curl -s http://127.0.0.1:8080/health
-```
-
-Expected: any HTTP 200 response (whisper health endpoint exists).
-
----
-
-## Phase 2: Start Gateway
-
-Start the gateway in dev mode (`OAUTH_AUDIENCE=""`) on port 9092.
-
-```bash
-cd gateway && OAUTH_AUDIENCE="" PORT=9092 WHISPER_HOST=127.0.0.1 WHISPER_PORT=8080 NUM_WORKERS=1 go run ./cmd/gateway > /tmp/gateway.log 2>&1 &
-echo "gateway PID: $!"
-```
-
-Wait for it to be ready:
-
-```bash
-for i in $(seq 1 15); do
-  if curl -sf http://127.0.0.1:9092/health | grep -q '"ok"'; then
-    echo "gateway ready after ${i}s"
-    break
-  fi
-  sleep 1
-done
-```
-
-Verify:
-
-```bash
-curl -s http://127.0.0.1:9092/health
+curl -s http://127.0.0.1:9090/health
 ```
 
 Expected: `{"status":"ok","service":"whisper-gateway","version":"1.0.0"}`
 
----
-
-## Phase 3: Auth Tests
-
-Set a convenience variable first:
+Verify container status:
 
 ```bash
-G="http://127.0.0.1:9092"
-T="Bearer dev-test-token"
+docker compose ps
 ```
 
-### 3a. No Authorization header → 401
-
-```bash
-curl -s -o /dev/null -w "%{http_code}" "$G/jobs/nonexistent"
-```
-
-Expected: `401`
-
-### 3b. Bad format ("Basic" instead of "Bearer") → 401
-
-```bash
-curl -s -o /dev/null -w "%{http_code}" "$G/jobs/nonexistent" -H "Authorization: Basic something"
-```
-
-Expected: `401`
-
-### 3c. Lowercase "bearer" → 401
-
-```bash
-curl -s -o /dev/null -w "%{http_code}" "$G/jobs/nonexistent" -H "Authorization: bearer fake-token"
-```
-
-Expected: `401` (the code checks for exact prefix `"Bearer "`, not case-insensitive)
-
-### 3d. Dev mode: any token passes auth → 404
-
-```bash
-curl -s "$G/jobs/nonexistent" -H "Authorization: $T"
-```
-
-Expected: `{"error":"job not found"}` — this means auth passed, the 404 is because no such job exists.
-
-### 3e. Health endpoint bypasses auth
-
-```bash
-curl -s "$G/health"
-```
-
-Expected: `{"status":"ok","service":"whisper-gateway","version":"1.0.0"}`
+Expected: both `whisper` and `gateway` show as `Up` (healthy).
 
 ---
 
-## Phase 4: WAV Transcription (end-to-end)
+## Phase 3: WAV Transcription (end-to-end)
 
-### 4a. Submit a WAV file for transcription
+### 3a. Submit a WAV file for transcription
 
 ```bash
-curl -s -X POST "$G/jobs" \
-  -H "Authorization: $T" \
-  -H "X-Sheets-Token: fake-access-token-123" \
-  -F "file=@test-audio.wav"
+G="http://127.0.0.1:9090"
+curl -s -X POST "$G/jobs" -F "file=@test-fixtures/test-audio.wav"
 ```
 
 Expected: `{"job_id":"<hex>","status":"queued"}` — HTTP 202. Save the `job_id` for the next step.
 
-### 4b. Poll the job status until completed
+### 3b. Poll the job status until completed
 
-Replace `<JOB_ID>` with the actual ID from step 4a:
+Replace `<JOB_ID>` with the actual ID from step 3a:
 
 ```bash
 JOB_ID="<JOB_ID>"
 for i in $(seq 1 60); do
-  STATUS=$(curl -s "$G/jobs/$JOB_ID" -H "Authorization: $T" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")
+  STATUS=$(curl -s "$G/jobs/$JOB_ID" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status',''))")
   echo "poll $i: $STATUS"
   if [ "$STATUS" = "done" ] || [ "$STATUS" = "failed" ]; then
     break
@@ -206,10 +133,10 @@ done
 
 Expected: status transitions `queued` → `processing` → `done`. Should complete within 2 minutes for the short test-audio.wav.
 
-### 4c. Inspect the result
+### 3c. Inspect the result
 
 ```bash
-curl -s "$G/jobs/$JOB_ID" -H "Authorization: $T"
+curl -s "$G/jobs/$JOB_ID"
 ```
 
 Expected JSON:
@@ -229,84 +156,72 @@ The `result` field contains the transcription text. Verify it's non-empty and ma
 
 ---
 
-## Phase 5: M4A Conversion + Transcription
+## Phase 4: M4A Conversion + Transcription
 
 M4A files need ffmpeg conversion to 16kHz mono WAV before sending to whisper.
 
-### 5a. Submit sample.m4a
+### 4a. Submit sample.m4a
 
 ```bash
-curl -s -X POST "$G/jobs" \
-  -H "Authorization: $T" \
-  -H "X-Sheets-Token: fake-sheets-token" \
-  -F "file=@sample.m4a"
+curl -s -X POST "$G/jobs" -F "file=@test-fixtures/sample.m4a"
 ```
 
 Expected: `{"job_id":"<hex>","status":"queued"}`
 
-### 5b. Poll until done
+### 4b. Poll until done
 
-Same pattern as 4b with the new job ID. Expected to complete with status `done` and a transcription of the audio content in `result`.
+Same pattern as 3b with the new job ID. Expected to complete with status `done` and a transcription of the audio content in `result`.
 
 ---
 
-## Phase 6: Error Cases
+## Phase 5: Error Cases
 
-### 6a. Wrong Content-Type → 400
+### 5a. Wrong Content-Type → 400
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}" -X POST "$G/jobs" \
-  -H "Authorization: $T" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
 
 Expected: `400`
 
-### 6b. Non-existent job ID → 404
+### 5b. Non-existent job ID → 404
 
 ```bash
-curl -s "$G/jobs/0000000000000000" -H "Authorization: $T"
+curl -s "$G/jobs/0000000000000000"
 ```
 
 Expected: `{"error":"job not found"}`
 
-### 6c. Unknown route → 404
+### 5c. Unknown route → 404
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}" "$G/nonexistent" -H "Authorization: $T"
+curl -s -o /dev/null -w "%{http_code}" "$G/nonexistent"
 ```
 
 Expected: `404`
 
 ---
 
-## Phase 7: Cleanup
+## Phase 6: Cleanup
 
-Stop all processes and remove temp logs.
-
-```bash
-# Stop gateway
-pkill -f "gateway.*9092" 2>/dev/null || true
-# Ensure port is freed
-lsof -ti:9092 | xargs kill -9 2>/dev/null || true
-
-# Stop whisper server
-pkill -f "whisper-server.*8080" 2>/dev/null || true
-# Ensure port is freed
-lsof -ti:8080 | xargs kill -9 2>/dev/null || true
-
-# Remove temp logs
-rm -f /tmp/gateway.log /tmp/whisper.log
-```
-
-Verify nothing is left running:
+Stop and remove containers, networks, and volumes created by docker compose.
 
 ```bash
-lsof -ti:9092 -ti:8080
+docker compose down
 ```
 
-Expected: no output (no processes on those ports).
+Verify nothing is left running (no containers, port 9090 freed):
+
+```bash
+docker compose ps -a
+lsof -ti:9090
+```
+
+Expected:
+- `docker compose ps -a`: no containers listed (or all "exited")
+- `lsof -ti:9090`: no output (port freed)
 
 ---
 
@@ -314,23 +229,20 @@ Expected: no output (no processes on those ports).
 
 | # | Test | Expected Result |
 |---|---|---|
-| P1 | ffmpeg exists | path printed |
-| P2 | Model exists | ~785 MB file |
-| P3 | Gateway builds | no errors |
-| P4 | Unit tests | all pass |
-| P5 | Whisper starts | health returns 200 |
-| P6 | Gateway starts | health returns `{"status":"ok"}` |
-| 3a | No auth header | 401 |
-| 3b | Bad format | 401 |
-| 3c | Lowercase bearer | 401 |
-| 3d | Dev mode token | 404 (auth passes) |
-| 3e | Health bypasses auth | 200 |
-| 4a | WAV submission | 202 with job_id |
-| 4b | WAV processing | status becomes `done` |
-| 4c | WAV result | `result` contains transcription text |
-| 5a | M4A submission | 202 with job_id |
-| 5b | M4A processing | status becomes `done` |
-| 6a | Wrong content-type | 400 |
-| 6b | Bad job ID | 404 |
-| 6c | Unknown route | 404 |
-| 7 | Cleanup | no processes on 9092 or 8080 |
+| P1 | Docker running | `Docker: OK` |
+| P2 | docker compose | version string (v2.x+) |
+| P3 | Model exists | ~785 MB file |
+| P4 | Whisper binary exists (Linux ELF) | `ELF 64-bit` (x86-64 or ARM) |
+| P5 | Test audio files exist | both files listed |
+| P6 | Python3 available | a path |
+| 1 | Docker compose up | both containers healthy |
+| 3a | WAV submission | 202 with `job_id` |
+| 3b | WAV processing | status becomes `done` |
+| 3c | WAV result | `result` contains transcription text |
+| 4a | M4A submission | 202 with `job_id` |
+| 4b | M4A processing | status becomes `done` |
+| 4c | M4A result | `result` contains transcription text |
+| 5a | Wrong Content-Type | 400 |
+| 5b | Bad job ID | 404 |
+| 5c | Unknown route | 404 |
+| 6 | Cleanup | no containers, port 9090 freed |
