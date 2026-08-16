@@ -479,7 +479,7 @@ func (c *Client) AppendRow(ctx context.Context, tab string, row []any) error {
 	if err != nil {
 		return fmt.Errorf("marshaling append body: %w", err)
 	}
-	u := fmt.Sprintf("%s/%s/values/%s:append?valueInputOption=RAW&insertDataOption=OVERWRITE",
+	u := fmt.Sprintf("%s/%s/values/%s:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
 		baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "A1:D")))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
@@ -596,6 +596,7 @@ func dataRowStyleRequest(sheetID int64, row int) map[string]any {
 					"backgroundColorStyle": map[string]any{
 						"rgbColor": map[string]any{"red": 1.0, "green": 1.0, "blue": 1.0},
 					},
+					"horizontalAlignment": "CENTER",
 					"textFormat": map[string]any{
 						"foregroundColorStyle": map[string]any{
 							"rgbColor": map[string]any{"red": 0.0, "green": 0.0, "blue": 0.0},
