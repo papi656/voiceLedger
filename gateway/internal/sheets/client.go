@@ -442,7 +442,7 @@ func (c *Client) AppendRow(ctx context.Context, tab string, row []any) error {
 	if err != nil {
 		return fmt.Errorf("marshaling append body: %w", err)
 	}
-	u := fmt.Sprintf("%s/%s/values/%s:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
+	u := fmt.Sprintf("%s/%s/values/%s:append?valueInputOption=RAW&insertDataOption=OVERWRITE",
 		baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "A1:E")))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
@@ -504,8 +504,16 @@ func (c *Client) applyRowFormats(ctx context.Context, tab string, appendBody []b
 		return
 	}
 	requests := []map[string]any{
+		dataRowStyleRequest(sid, row),
 		formatRequest(sid, row, 0, 1, "DATE", "M/d/yyyy"),
 		formatRequest(sid, row, 2, 3, "CURRENCY", "[$¥]#,##0"),
+	}
+	// Apply the Type dropdown (ONE_OF_LIST from the tab's own validation) so
+	// the category cell always offers the right values.
+	if cats, err := c.TypeCategories(ctx, tab); err == nil && len(cats) > 0 {
+		requests = append(requests, dropdownRequest(sid, row, cats))
+	} else if err != nil {
+		log.Printf("sheets: fetching dropdown categories: %v", err)
 	}
 	tok, err := c.provider.token(ctx)
 	if err != nil {
@@ -530,6 +538,68 @@ func (c *Client) applyRowFormats(ctx context.Context, tab string, appendBody []b
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(resp.Body)
 		log.Printf("sheets: row formatting returned %d: %s", resp.StatusCode, truncate(b))
+	}
+}
+
+// dataRowStyleRequest explicitly sets the spreadsheet's data-row look on the
+// appended row: white background, black text, Arial 10, not bold. API-appended
+// rows can otherwise inherit the header's dark style (black background with
+// white text) from INSERT_ROWS or theme defaults.
+func dataRowStyleRequest(sheetID int64, row int) map[string]any {
+	return map[string]any{
+		"repeatCell": map[string]any{
+			"range": map[string]any{
+				"sheetId":          sheetID,
+				"startRowIndex":    row - 1,
+				"endRowIndex":      row,
+				"startColumnIndex": 0,
+				"endColumnIndex":   5,
+			},
+			"cell": map[string]any{
+				"userEnteredFormat": map[string]any{
+					"backgroundColorStyle": map[string]any{
+						"rgbColor": map[string]any{"red": 1.0, "green": 1.0, "blue": 1.0},
+					},
+					"textFormat": map[string]any{
+						"foregroundColorStyle": map[string]any{
+							"rgbColor": map[string]any{"red": 0.0, "green": 0.0, "blue": 0.0},
+						},
+						"fontFamily": "Oswald",
+						"fontSize":   10,
+						"bold":       false,
+					},
+				},
+			},
+			"fields": "userEnteredFormat.backgroundColorStyle,userEnteredFormat.textFormat",
+		},
+	}
+}
+
+// dropdownRequest builds a setDataValidation request applying a strict
+// ONE_OF_LIST dropdown (the sheet's Type values) to column B of the given row.
+func dropdownRequest(sheetID int64, row int, categories []string) map[string]any {
+	vals := make([]map[string]any, 0, len(categories))
+	for _, c := range categories {
+		vals = append(vals, map[string]any{"userEnteredValue": c})
+	}
+	return map[string]any{
+		"setDataValidation": map[string]any{
+			"range": map[string]any{
+				"sheetId":          sheetID,
+				"startRowIndex":    row - 1,
+				"endRowIndex":      row,
+				"startColumnIndex": 1,
+				"endColumnIndex":   2,
+			},
+			"rule": map[string]any{
+				"condition": map[string]any{
+					"type":   "ONE_OF_LIST",
+					"values": vals,
+				},
+				"strict":       true,
+				"showCustomUi": true,
+			},
+		},
 	}
 }
 
