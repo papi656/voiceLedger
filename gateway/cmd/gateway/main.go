@@ -29,13 +29,9 @@ func main() {
 		time.Duration(cfg.WhisperTimeoutSec)*time.Second,
 	)
 
-	llmClient := llm.NewClient(
-		cfg.LLMHost,
-		cfg.LLMPort,
-		time.Duration(cfg.LLMTimeoutSec)*time.Second,
-	)
-
+	// Sheets client first — its Type dropdown values feed the LLM prompt.
 	var sheetsClient *sheets.Client
+	var sheetCategories []string
 	if cfg.GoogleSheetsEnabled {
 		sc, err := sheets.NewClient(
 			cfg.GoogleSheetsKeyPath,
@@ -48,7 +44,24 @@ func main() {
 		}
 		sheetsClient = sc
 		log.Printf("google sheets export enabled: sheet=%s tab=%s", cfg.GoogleSheetsSheetID, cfg.GoogleSheetsTab)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		cats, err := sc.TypeCategories(ctx, cfg.GoogleSheetsTab)
+		cancel()
+		if err != nil {
+			log.Printf("could not load sheet type categories (LLM will use a generic prompt): %v", err)
+		} else if len(cats) > 0 {
+			sheetCategories = cats
+			log.Printf("loaded %d sheet type categories: %v", len(cats), cats)
+		}
 	}
+
+	llmClient := llm.NewClient(
+		cfg.LLMHost,
+		cfg.LLMPort,
+		time.Duration(cfg.LLMTimeoutSec)*time.Second,
+		sheetCategories,
+	)
 
 	queue := transcription.NewJobQueue(
 		cfg.MaxQueueSize,

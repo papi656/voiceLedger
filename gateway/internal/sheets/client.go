@@ -33,6 +33,10 @@ type Client struct {
 	tabsMu sync.Mutex
 	tabs   []tabInfo
 	tabsAt time.Time
+
+	catsMu sync.Mutex
+	cats   []string
+	catsAt time.Time
 }
 
 // NewClient creates a Sheets client. keyPath is a Google service account JSON
@@ -215,6 +219,143 @@ func capitalize(s string) string {
 	r := []rune(s)
 	r[0] = unicode.ToUpper(r[0])
 	return string(r)
+}
+
+// TypeCategories returns the unique Type dropdown values for the given tab
+// (data validation on column B), cached for an hour. Handles ONE_OF_LIST
+// dropdowns and ONE_OF_RANGE (resolves the referenced range).
+func (c *Client) TypeCategories(ctx context.Context, tab string) ([]string, error) {
+	c.catsMu.Lock()
+	defer c.catsMu.Unlock()
+	if c.cats != nil && time.Since(c.catsAt) < time.Hour {
+		return c.cats, nil
+	}
+
+	tok, err := c.provider.token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u := fmt.Sprintf("%s/%s?ranges=%s&fields=sheets.data.rowData.values.dataValidation",
+		baseURL, url.PathEscape(c.sheetID), url.QueryEscape(a1Range(tab, "B1:B1000")))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building categories request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("categories fetch: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading categories response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("categories fetch returned %d: %s", resp.StatusCode, truncate(body))
+	}
+
+	var doc struct {
+		Sheets []struct {
+			Data []struct {
+				RowData []struct {
+					Values []struct {
+						DataValidation *struct {
+							Condition struct {
+								Type   string `json:"type"`
+								Values []struct {
+									UserEnteredValue any `json:"userEnteredValue"`
+								} `json:"values"`
+							} `json:"condition"`
+						} `json:"dataValidation"`
+					} `json:"values"`
+				} `json:"rowData"`
+			} `json:"data"`
+		} `json:"sheets"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("parsing categories response: %w", err)
+	}
+
+	seen := map[string]bool{}
+	var out []string
+	for _, sheet := range doc.Sheets {
+		for _, data := range sheet.Data {
+			for _, row := range data.RowData {
+				for _, cell := range row.Values {
+					dv := cell.DataValidation
+					if dv == nil {
+						continue
+					}
+					switch dv.Condition.Type {
+					case "ONE_OF_LIST":
+						for _, v := range dv.Condition.Values {
+							s := strings.TrimSpace(fmt.Sprint(v.UserEnteredValue))
+							if s != "" && !seen[s] {
+								seen[s] = true
+								out = append(out, s)
+							}
+						}
+					case "ONE_OF_RANGE":
+						for _, v := range dv.Condition.Values {
+							rng := strings.TrimPrefix(strings.TrimSpace(fmt.Sprint(v.UserEnteredValue)), "=")
+							if rng == "" {
+								continue
+							}
+							vals, err := c.readRange(ctx, tok, rng)
+							if err != nil {
+								log.Printf("sheets: resolving category range %q: %v", rng, err)
+								continue
+							}
+							for _, rowVals := range vals {
+								for _, cellV := range rowVals {
+									s := strings.TrimSpace(fmt.Sprint(cellV))
+									if s != "" && !seen[s] {
+										seen[s] = true
+										out = append(out, s)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	c.cats = out
+	c.catsAt = time.Now()
+	return out, nil
+}
+
+// readRange fetches raw values for an A1 range (used for ONE_OF_RANGE
+// category lists).
+func (c *Client) readRange(ctx context.Context, tok, rng string) ([][]any, error) {
+	u := fmt.Sprintf("%s/%s/values/%s", baseURL, url.PathEscape(c.sheetID), url.PathEscape(rng))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, truncate(body))
+	}
+	var vr struct {
+		Values [][]any `json:"values"`
+	}
+	if err := json.Unmarshal(body, &vr); err != nil {
+		return nil, err
+	}
+	return vr.Values, nil
 }
 
 // AppendRowWithRetry writes one row to the given tab, deduping by the job_id

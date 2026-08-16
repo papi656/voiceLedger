@@ -69,7 +69,7 @@ Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential back
 | `GET` | `/health` | None | Health check |
 | `POST` | `/jobs` | None | Submit audio (multipart/form-data, `file` field, optional `category` hint) |
 | `GET` | `/jobs/{id}` | None | Poll job status and result |
-| `GET` | `/sheets` | None | List Google Sheets tabs (`enabled`, `default`, `tabs`) |
+| `GET` | `/sheets` | None | List Google Sheets tabs + Type categories (`enabled`, `default`, `tabs`, `categories`) |
 
 **Rate limits** (default): 30 req/min per IP. Headers:
 `X-RateLimit-Remaining-IP`, `Retry-After`.
@@ -129,7 +129,10 @@ Spreadsheet as a row in the spreadsheet's own style (the April, 2026 layout):
 `Date | Type | Amount | Comments` — plus the `job_id` in column E (for dedupe)
 
 - **Date** — a real date (Excel serial), rendered per the tab's date format
-- **Type** — the extracted category, capitalized (`shopping` → `Shopping`)
+- **Type** — the extracted category, constrained to the sheet's own Type
+  dropdown values (read from the tab's data validation at startup — e.g.
+  `Grocery, Shopping, Utilities, Travel, Household`), so rows always satisfy
+  the sheet's strict validation
 - **Amount** — the **numeric value only** (`3000 yen` → `3000`, `¥2,853` → `2853`),
   written as a plain number so SUM-style formulas work
 - **Comments** — the extracted place (e.g. `Sanwa`)

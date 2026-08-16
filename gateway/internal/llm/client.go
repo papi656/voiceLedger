@@ -24,13 +24,17 @@ type Extraction struct {
 type Client struct {
 	baseURL string
 	client  *http.Client
+	prompt  string
 }
 
 // NewClient creates an LLM client pointed at the given host and port.
-func NewClient(host, port string, timeout time.Duration) *Client {
+// categories (optional) restricts the extracted category to an allowed set
+// (typically the sheet's Type dropdown values).
+func NewClient(host, port string, timeout time.Duration, categories []string) *Client {
 	return &Client{
 		baseURL: fmt.Sprintf("http://%s:%s", host, port),
 		client:  &http.Client{Timeout: timeout},
+		prompt:  buildPrompt(categories),
 	}
 }
 
@@ -42,7 +46,7 @@ func (c *Client) Extract(ctx context.Context, text, categoryHint string) (*Extra
 	messages := []map[string]string{
 		{
 			"role":    "system",
-			"content": prompt,
+			"content": c.prompt,
 		},
 		{
 			"role":    "user",
@@ -165,13 +169,26 @@ func parseResponse(body []byte) (*Extraction, error) {
 	return &e, nil
 }
 
-// prompt instructs the LLM to extract structured data from user text.
-const prompt = `You are a structured data extractor. Given user text (usually a transcription of speech), extract the following fields:
+// promptIntro is the shared instruction prefix; the category line varies
+// depending on whether an allowed set was provided.
+const promptIntro = `You are a structured data extractor. Given user text (usually a transcription of speech), extract the following fields:
 
 - price: the price, cost, or amount mentioned. Return empty string if not found.
 - place: the location, store, venue, or place mentioned. Return empty string if not found.
-- category: a short label describing the type of transaction or topic (e.g. "groceries", "dining", "transport", "shopping", "entertainment"). Return empty string if not clear.
-- date: the date mentioned in the text (e.g. "yesterday", "last Monday", "June 3rd", "2024-05-01"). Normalize it to YYYY-MM-DD format. Return empty string if no date is mentioned.
+- date: the date mentioned in the text (e.g. "yesterday", "last Monday", "June 3rd", "2024-05-01"). Normalize it to YYYY-MM-DD format. Return empty string if no date is mentioned.`
+
+// buildPrompt returns the system prompt. When categories is non-empty, the
+// category field is constrained to exactly those values (the sheet's Type
+// dropdown); otherwise a free-form label is requested.
+func buildPrompt(categories []string) string {
+	var cat string
+	if len(categories) > 0 {
+		cat = fmt.Sprintf("- category: exactly one of these allowed values: %s. Pick the closest match; return empty string only if none apply.", strings.Join(categories, ", "))
+	} else {
+		cat = `- category: a short label describing the type of transaction or topic (e.g. "groceries", "dining", "transport", "shopping", "entertainment"). Return empty string if not clear.`
+	}
+	return promptIntro + "\n" + cat + `
 
 Return ONLY a valid JSON object with exactly these four keys: price, place, category, date.
 No additional text, no markdown, no explanation.`
+}

@@ -96,9 +96,10 @@ func SubmitJobHandler(cfg *config.Config, conv *audio.Converter, queue *JobQueue
 func ListSheetsHandler(sheetsClient *sheets.Client) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]any{
-			"enabled": false,
-			"default": "",
-			"tabs":    []string{},
+			"enabled":    false,
+			"default":    "",
+			"tabs":       []string{},
+			"categories": []string{},
 		}
 		if sheetsClient != nil {
 			tabs, err := sheetsClient.Tabs(r.Context())
@@ -109,6 +110,11 @@ func ListSheetsHandler(sheetsClient *sheets.Client) http.Handler {
 			resp["enabled"] = true
 			resp["default"] = sheetsClient.DefaultTab
 			resp["tabs"] = tabs
+			if cats, err := sheetsClient.TypeCategories(r.Context(), sheetsClient.DefaultTab); err == nil {
+				resp["categories"] = cats
+			} else {
+				log.Printf("failed to fetch sheet type categories: %v", err)
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
