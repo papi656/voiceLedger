@@ -133,12 +133,12 @@ Spreadsheet as a row in the spreadsheet's own style (the April, 2026 layout):
   dropdown values (read from the tab's data validation at startup — e.g.
   `Grocery, Shopping, Utilities, Travel, Household`), so rows always satisfy
   the sheet's strict validation
-- **Amount** — the **numeric value only** (`3000 yen` → `3000`, `¥2,853` → `2853`),
-  written as a plain number so SUM-style formulas work
+- **Amount** — the **numeric value only, no currency symbol** (`3000 yen` → `3000`,
+  `¥2,853` → `2853`), written as a plain number so SUM-style formulas work
 - **Comments** — the extracted place (e.g. `Sanwa`)
 
-The appended row gets the tab's number formats applied (date on A, currency on
-C), matching rows entered by hand.
+The appended row gets the date format applied on A (matching rows entered by
+hand); the amount stays a bare number with no currency symbol.
 
 Setup (one-time, ~10 min):
 

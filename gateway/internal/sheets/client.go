@@ -543,7 +543,6 @@ func (c *Client) applyRowFormats(ctx context.Context, tab string, appendBody []b
 	requests := []map[string]any{
 		dataRowStyleRequest(sid, row),
 		formatRequest(sid, row, 0, 1, "DATE", "M/d/yyyy"),
-		formatRequest(sid, row, 2, 3, "CURRENCY", "[$¥]#,##0"),
 	}
 	// Apply the Type dropdown (ONE_OF_LIST from the tab's own validation) so
 	// the category cell always offers the right values.
