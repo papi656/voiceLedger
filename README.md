@@ -16,7 +16,14 @@ Browser / Client
 │ • rate limit│     │ • ggml-medium-q8  │
 │ • ffmpeg    │     │ • 16kHz mono WAV  │
 │ • job queue │     │ • JSON response   │
-└─────────────┘     └──────────────────┘
+│             │     └──────────────────┘
+│             │
+│             │     ┌──────────────────┐
+│             │────▶│  llm-server      │
+└─────────────┘     │ (llama.cpp,:8081)│
+                    │ • structured     │
+                    │   extraction    │
+                    └──────────────────┘
 ```
 
 > **MVP — No authentication.** All endpoints are open. IP-based rate limiting only.
@@ -24,8 +31,9 @@ Browser / Client
 ## Quick start
 
 ```bash
-# First time only — compiles whisper-server for Linux (~5 min)
+# First time only — compiles whisper-server and llm-server for Linux (~5-10 min)
 ./scripts/build-whisper-linux.sh
+./scripts/build-llm-linux.sh
 
 # Start both services
 docker compose up -d
@@ -43,6 +51,8 @@ curl -X POST http://localhost:9090/jobs \
 curl http://localhost:9090/jobs/abc123...
 # → {"job_id":"abc123...","status":"done","result":{...}}
 ```
+
+After transcription, the gateway sends the text to an LLM server (llama.cpp, gemma model) for best-effort structured extraction: `result.extraction` contains `{price, place, category, date}`.
 
 ## API
 
@@ -80,8 +90,16 @@ curl http://localhost:9090/jobs/abc123...
 │   ├── models/                 # Model files (ggml-medium-q8_0.bin)
 │   └── start.sh               # Local macOS test script
 │
+├── llm-package/             # LLM extraction server
+│   ├── Dockerfile           # Slim runtime — just COPY + ldconfig
+│   ├── llama-server-linux   # Pre-compiled ELF binary
+│   ├── lib*.so.*            # Shared libraries for inference
+│   ├── models/              # Model files (gemma-4-E4B-it-Q4_0.gguf)
+│   └── start.sh             # Local macOS test script
+│
 ├── scripts/
-│   └── build-whisper-linux.sh  # One-time: compile whisper for Linux in Docker
+│   ├── build-whisper-linux.sh  # One-time: compile whisper for Linux in Docker
+│   └── build-llm-linux.sh      # One-time: compile llm server for Linux in Docker
 │
 ├── test-fixtures/              # Sample audio files for testing
 │   ├── sample.m4a
@@ -91,7 +109,7 @@ curl http://localhost:9090/jobs/abc123...
 │   ├── whisper-build-explanation.md   # How the build system works
 │   └── expose-internet.md             # Public internet via Tailscale Funnel
 │
-└── docker-compose.yml          # Orchestrates gateway + whisper
+└── docker-compose.yml          # Orchestrates gateway + whisper + llm
 ```
 
 ## Expose to the internet

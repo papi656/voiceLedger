@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="$SCRIPT_DIR/../llm-package"
 
-echo "=== Building llama-server for Linux ==="
+echo "=== Building llm-server for Linux ==="
 
 cat > "$BUILD_DIR/Dockerfile.builder" << 'DOCKERFILE'
 FROM ubuntu:22.04 AS builder
@@ -21,11 +21,11 @@ RUN cmake --build build --config Release -j$(nproc) --target llama-server
 ENTRYPOINT ["/bin/sh"]
 DOCKERFILE
 
-docker build -t llama-linux-builder -f "$BUILD_DIR/Dockerfile.builder" "$BUILD_DIR"
+docker build -t llm-linux-builder -f "$BUILD_DIR/Dockerfile.builder" "$BUILD_DIR"
 rm "$BUILD_DIR/Dockerfile.builder"
 
 echo "=== Extracting artifacts ==="
-CID=$(docker create llama-linux-builder)
+CID=$(docker create llm-linux-builder)
 
 # Clean old artifacts
 rm -f "$BUILD_DIR"/libggml*.so* "$BUILD_DIR"/libllama*.so* "$BUILD_DIR"/libmtmd*.so* "$BUILD_DIR"/llama-server-linux
@@ -39,7 +39,7 @@ cp -a "$BUILD_DIR/_tmp_bin"/lib*.so* "$BUILD_DIR/"
 rm -rf "$BUILD_DIR/_tmp_bin"
 
 docker rm "$CID" >/dev/null
-docker rmi llama-linux-builder >/dev/null 2>&1
+docker rmi llm-linux-builder >/dev/null 2>&1
 
 echo ""
 echo "=== Done ==="

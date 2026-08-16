@@ -54,7 +54,7 @@ func Load() *Config {
 		MaxQueueSize:          envInt("MAX_QUEUE_SIZE", 50),
 		JobTTLSec:             envInt("JOB_TTL_SEC", 3600),
 		JobCleanupIntervalSec: envInt("JOB_CLEANUP_INTERVAL_SEC", 300),
-		LLMHost:               envStr("LLM_HOST", "llama"),
+		LLMHost:               envStr("LLM_HOST", "llm"),
 		LLMPort:               envStr("LLM_PORT", "8081"),
 		LLMTimeoutSec:         envInt("LLM_TIMEOUT_SEC", 120),
 		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),

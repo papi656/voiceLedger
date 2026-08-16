@@ -12,7 +12,7 @@ services:
     networks:
       - internal
 
-  llama:
+  llm:
     build:
       context: ./llm-package
       dockerfile: Dockerfile
@@ -38,7 +38,7 @@ services:
       - PORT=9090
       - WHISPER_HOST=whisper
       - WHISPER_PORT=8080
-      - LLM_HOST=llama
+      - LLM_HOST=llm
       - LLM_PORT=8081
       - MAX_FILE_SIZE_MB=25
       - RATE_LIMIT_PER_IP=30
@@ -49,7 +49,7 @@ services:
     depends_on:
       whisper:
         condition: service_healthy
-      llama:
+      llm:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
