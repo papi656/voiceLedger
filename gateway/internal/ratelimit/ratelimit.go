@@ -19,10 +19,10 @@ type tokenBucket struct {
 
 // RateLimiter is an IP-based token-bucket rate limiter.
 type RateLimiter struct {
-	mu       sync.Mutex
-	buckets  map[string]*tokenBucket
-	rate     float64
-	burst    int
+	mu      sync.Mutex
+	buckets map[string]*tokenBucket
+	rate    float64
+	burst   int
 }
 
 // NewRateLimiter creates a rate limiter with the given per-IP limits.

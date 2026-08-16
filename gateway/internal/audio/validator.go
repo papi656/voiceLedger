@@ -67,10 +67,11 @@ func IsFormatAllowed(format string, allowed []string) bool {
 
 // ValidateAndParseFile reads and validates an uploaded audio file from the request.
 // It enforces size limits, checks for path traversal, and validates the audio format.
-func ValidateAndParseFile(r *http.Request, maxBodySizeMB, maxFileSizeMB int, allowedFormats []string) (*multipart.FileHeader, []byte, error) {
+// It also returns any non-file form values (first value per key).
+func ValidateAndParseFile(r *http.Request, maxBodySizeMB, maxFileSizeMB int, allowedFormats []string) (*multipart.FileHeader, []byte, map[string]string, error) {
 	ct := r.Header.Get("Content-Type")
 	if !strings.HasPrefix(ct, "multipart/form-data") {
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "Content-Type must be multipart/form-data"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "Content-Type must be multipart/form-data"}
 	}
 
 	r.Body = http.MaxBytesReader(nil, r.Body, int64(maxBodySizeMB)*1024*1024)
@@ -78,58 +79,65 @@ func ValidateAndParseFile(r *http.Request, maxBodySizeMB, maxFileSizeMB int, all
 	buf := &bytes.Buffer{}
 	if _, err := io.Copy(buf, r.Body); err != nil {
 		if strings.Contains(err.Error(), "http: request body too large") {
-			return nil, nil, &httputil.HTTPError{http.StatusRequestEntityTooLarge, fmt.Sprintf("request body exceeds maximum size of %d MB", maxBodySizeMB)}
+			return nil, nil, nil, &httputil.HTTPError{http.StatusRequestEntityTooLarge, fmt.Sprintf("request body exceeds maximum size of %d MB", maxBodySizeMB)}
 		}
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to read request body"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to read request body"}
 	}
 
 	reader := multipart.NewReader(bytes.NewReader(buf.Bytes()), extractBoundary(ct))
 	form, err := reader.ReadForm(int64(maxFileSizeMB) * 1024 * 1024)
 	if err != nil {
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to parse multipart form"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to parse multipart form"}
+	}
+
+	vals := make(map[string]string, len(form.Value))
+	for k, v := range form.Value {
+		if len(v) > 0 {
+			vals[k] = v[0]
+		}
 	}
 
 	fileHeaders, ok := form.File["file"]
 	if !ok || len(fileHeaders) == 0 {
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "no 'file' field in request"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "no 'file' field in request"}
 	}
 
 	fh := fileHeaders[0]
 
 	if isPathTraversal(fh.Filename) {
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "invalid filename"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "invalid filename"}
 	}
 
 	if fh.Size > int64(maxFileSizeMB)*1024*1024 {
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds maximum size of %d MB", maxFileSizeMB)}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusRequestEntityTooLarge, fmt.Sprintf("file exceeds maximum size of %d MB", maxFileSizeMB)}
 	}
 
 	f, err := fh.Open()
 	if err != nil {
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to open uploaded file"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to open uploaded file"}
 	}
 
 	fileData := make([]byte, fh.Size)
 	if _, err := io.ReadFull(f, fileData); err != nil {
 		f.Close()
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to read file data"}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusBadRequest, "failed to read file data"}
 	}
 	f.Close()
 
 	format, ok := DetectFormat(fileData)
 	if !ok || !IsFormatAllowed(format, allowedFormats) {
 		form.RemoveAll()
-		return nil, nil, &httputil.HTTPError{http.StatusUnsupportedMediaType, fmt.Sprintf("unsupported audio format, allowed: %s", strings.Join(allowedFormats, ", "))}
+		return nil, nil, nil, &httputil.HTTPError{http.StatusUnsupportedMediaType, fmt.Sprintf("unsupported audio format, allowed: %s", strings.Join(allowedFormats, ", "))}
 	}
 
 	form.RemoveAll()
 
-	return fh, fileData, nil
+	return fh, fileData, vals, nil
 }
 
 func extractBoundary(ct string) string {

@@ -35,19 +35,29 @@ func NewClient(host, port string, timeout time.Duration) *Client {
 }
 
 // Extract sends transcription text to the LLM and returns structured extraction
-// with price, place, category, and the current date.
-func (c *Client) Extract(ctx context.Context, text string) (*Extraction, error) {
-	reqBody := map[string]any{
-		"messages": []map[string]string{
-			{
-				"role":    "system",
-				"content": prompt,
-			},
-			{
-				"role":    "user",
-				"content": text,
-			},
+// with price, place, category, and date (falling back to the current date when
+// the input mentions no date). A non-empty categoryHint is passed to the model
+// as a fallback category to use when the text is unclear.
+func (c *Client) Extract(ctx context.Context, text, categoryHint string) (*Extraction, error) {
+	messages := []map[string]string{
+		{
+			"role":    "system",
+			"content": prompt,
 		},
+		{
+			"role":    "user",
+			"content": text,
+		},
+	}
+	if strings.TrimSpace(categoryHint) != "" {
+		messages = append(messages, map[string]string{
+			"role":    "system",
+			"content": fmt.Sprintf("Category hint from the caller: %q. Use this as the category whenever the text does not clearly indicate one; prefer it over returning an empty category.", strings.TrimSpace(categoryHint)),
+		})
+	}
+
+	reqBody := map[string]any{
+		"messages":    messages,
 		"temperature": 0,
 		"max_tokens":  200,
 	}
@@ -84,12 +94,13 @@ func (c *Client) Extract(ctx context.Context, text string) (*Extraction, error) 
 // ExtractWithRetry sends the text to the LLM for extraction, retrying up to
 // maxRetries additional times (maxRetries+1 attempts total) with exponential
 // backoff (1s, 2s, 4s, ...) between attempts. Returns the first successful
-// extraction, or an error if all attempts fail.
-func (c *Client) ExtractWithRetry(ctx context.Context, text string, maxRetries int) (*Extraction, error) {
+// extraction, or an error if all attempts fail. categoryHint is passed through
+// to Extract as a fallback category.
+func (c *Client) ExtractWithRetry(ctx context.Context, text, categoryHint string, maxRetries int) (*Extraction, error) {
 	total := maxRetries + 1
 	var lastErr error
 	for attempt := 1; attempt <= total; attempt++ {
-		extraction, err := c.Extract(ctx, text)
+		extraction, err := c.Extract(ctx, text, categoryHint)
 		if err == nil {
 			return extraction, nil
 		}
@@ -144,7 +155,12 @@ func parseResponse(body []byte) (*Extraction, error) {
 		return nil, fmt.Errorf("parsing llm extraction JSON: %w (raw: %q)", err, cr.Choices[0].Message.Content)
 	}
 
-	e.Date = time.Now().Format("2006-01-02")
+	// Prefer the date extracted from the input message; fall back to today.
+	if strings.TrimSpace(e.Date) == "" {
+		e.Date = time.Now().Format("2006-01-02")
+	} else {
+		e.Date = strings.TrimSpace(e.Date)
+	}
 
 	return &e, nil
 }
@@ -155,6 +171,7 @@ const prompt = `You are a structured data extractor. Given user text (usually a 
 - price: the price, cost, or amount mentioned. Return empty string if not found.
 - place: the location, store, venue, or place mentioned. Return empty string if not found.
 - category: a short label describing the type of transaction or topic (e.g. "groceries", "dining", "transport", "shopping", "entertainment"). Return empty string if not clear.
+- date: the date mentioned in the text (e.g. "yesterday", "last Monday", "June 3rd", "2024-05-01"). Normalize it to YYYY-MM-DD format. Return empty string if no date is mentioned.
 
-Return ONLY a valid JSON object with exactly these three keys: price, place, category.
+Return ONLY a valid JSON object with exactly these four keys: price, place, category, date.
 No additional text, no markdown, no explanation.`

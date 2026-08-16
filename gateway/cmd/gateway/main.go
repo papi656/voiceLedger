@@ -77,7 +77,7 @@ func main() {
 		time.Duration(cfg.ConvertTimeoutSec)*time.Second,
 	)
 
-	handler := server.BuildHandler(cfg, limiter, conv, queue, store)
+	handler := server.BuildHandler(cfg, limiter, conv, queue, store, sheetsClient)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.GatewayPort,

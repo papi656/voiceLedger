@@ -52,15 +52,24 @@ curl http://localhost:9090/jobs/abc123...
 # → {"job_id":"abc123...","status":"done","result":{...}}
 ```
 
-After transcription, the gateway sends the text to an LLM server (llama.cpp, gemma model) for structured extraction: `result.extraction` contains `{price, place, category, date}`. Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential backoff); if it still fails, the job is marked `failed` with the error.
+After transcription, the gateway sends the text to an LLM server (llama.cpp, gemma model) for structured extraction: `result.extraction` contains `{price, place, category, date}`. The date is extracted from the transcription text (e.g. "yesterday", "last Monday") and falls back to today's date when none is mentioned. If you know what kind of purchase it is (e.g. the receipt came from a store whose category the model can't guess), pass a `category` field with the upload and the LLM will use it as a fallback whenever the text doesn't make the category clear:
+
+```bash
+curl -X POST http://localhost:9090/jobs \
+  -F "file=@test-fixtures/sample.m4a" \
+  -F "category=groceries"
+```
+
+Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential backoff); if it still fails, the job is marked `failed` with the error.
 
 ## API
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | `GET` | `/health` | None | Health check |
-| `POST` | `/jobs` | None | Submit audio (multipart/form-data, `file` field) |
+| `POST` | `/jobs` | None | Submit audio (multipart/form-data, `file` field, optional `category` hint) |
 | `GET` | `/jobs/{id}` | None | Poll job status and result |
+| `GET` | `/sheets` | None | List Google Sheets tabs (`enabled`, `default`, `tabs`) |
 
 **Rate limits** (default): 30 req/min per IP. Headers:
 `X-RateLimit-Remaining-IP`, `Retry-After`.
@@ -139,6 +148,18 @@ Setup (one-time, ~10 min):
 Sheet writes are **best-effort with retries** and dedupe by `job_id` — a Google
 outage never fails the transcription job. Rows are appended only when extraction
 succeeds. Uses the Sheets API v4 directly (service-account JWT, stdlib-only).
+
+Choose the target tab per job with the optional `sheet` form field (multipart):
+
+```bash
+curl -X POST http://localhost:9090/jobs \
+  -F "file=@recording.m4a" \
+  -F "sheet=August, 2026"          # must be a tab from GET /sheets
+```
+
+- No `sheet` field → rows go to `GOOGLE_SHEET_TAB`
+- Unknown tab → `400 {"error":"unknown sheet tab: ..."}`
+- The job response includes the chosen tab: `"sheet": "August, 2026"`
 
 ## Expose to the internet
 

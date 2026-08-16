@@ -107,3 +107,17 @@ func TestTruncate(t *testing.T) {
 		t.Errorf("truncate length = %d, want 303", len(got))
 	}
 }
+
+func TestA1Range(t *testing.T) {
+	cases := []struct{ tab, cells, want string }{
+		{"Sheet1", "A1", "'Sheet1'!A1"},
+		{"Jan, 2026", "A1:A", "'Jan, 2026'!A1:A"},
+		{"Spendings/ Expences", "A1", "'Spendings/ Expences'!A1"},
+		{"Bob's tab", "A1", "'Bob''s tab'!A1"},
+	}
+	for _, c := range cases {
+		if got := a1Range(c.tab, c.cells); got != c.want {
+			t.Errorf("a1Range(%q, %q) = %q, want %q", c.tab, c.cells, got, c.want)
+		}
+	}
+}

@@ -25,15 +25,17 @@ type JobResult struct {
 
 // Job represents a transcription request flowing through the system.
 type Job struct {
-	ID          string     `json:"job_id"`
-	Status      string     `json:"status"`
-	KeyID       string     `json:"-"`
-	Filename    string     `json:"filename"`
-	WAVData     []byte     `json:"-"`
-	Result      *JobResult `json:"result"`
-	Error       string     `json:"error"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID        string     `json:"job_id"`
+	Status    string     `json:"status"`
+	KeyID     string     `json:"-"`
+	Filename  string     `json:"filename"`
+	Category  string     `json:"category,omitempty"`
+	Sheet     string     `json:"sheet,omitempty"`
+	WAVData   []byte     `json:"-"`
+	Result    *JobResult `json:"result"`
+	Error     string     `json:"error"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
 }
 
 // GenerateJobID produces a cryptographically random 16-character hex job ID.

@@ -115,7 +115,7 @@ func (q *JobQueue) processJob(job *Job) {
 
 	// Run LLM extraction with retries — extraction failure fails the job.
 	if q.llmClient != nil {
-		extraction, llmErr := q.llmClient.ExtractWithRetry(ctx, text, q.llmMaxRetries)
+		extraction, llmErr := q.llmClient.ExtractWithRetry(ctx, text, job.Category, q.llmMaxRetries)
 		if llmErr != nil {
 			job.Status = JobFailed
 			job.Error = llmErr.Error()
@@ -130,6 +130,10 @@ func (q *JobQueue) processJob(job *Job) {
 		// Append the extraction row to Google Sheets (best-effort with retries
 		// and dedupe by job_id — a sheet outage must not fail the job).
 		if q.sheetsClient != nil {
+			tab := job.Sheet
+			if tab == "" {
+				tab = q.sheetsClient.DefaultTab
+			}
 			row := []string{
 				job.ID,
 				extraction.Date,
@@ -139,8 +143,10 @@ func (q *JobQueue) processJob(job *Job) {
 				strings.TrimSpace(text),
 				job.CreatedAt.Format(time.RFC3339),
 			}
-			if err := q.sheetsClient.AppendRowWithRetry(ctx, row, q.sheetsMaxRetries); err != nil {
+			if err := q.sheetsClient.AppendRowWithRetry(ctx, tab, row, q.sheetsMaxRetries); err != nil {
 				log.Printf("job %s google sheets append failed (job still done): %v", job.ID, err)
+			} else {
+				log.Printf("job %s appended to google sheets (tab %q)", job.ID, tab)
 			}
 		}
 	}
