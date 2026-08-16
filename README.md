@@ -52,7 +52,7 @@ curl http://localhost:9090/jobs/abc123...
 # → {"job_id":"abc123...","status":"done","result":{...}}
 ```
 
-After transcription, the gateway sends the text to an LLM server (llama.cpp, gemma model) for best-effort structured extraction: `result.extraction` contains `{price, place, category, date}`.
+After transcription, the gateway sends the text to an LLM server (llama.cpp, gemma model) for structured extraction: `result.extraction` contains `{price, place, category, date}`. Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential backoff); if it still fails, the job is marked `failed` with the error.
 
 ## API
 

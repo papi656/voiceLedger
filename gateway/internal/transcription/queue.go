@@ -23,12 +23,13 @@ type JobQueue struct {
 	transcriber       Transcriber
 	transcribeTimeout time.Duration
 	llmClient         *llm.Client
+	llmMaxRetries     int
 	stopCh            chan struct{}
 	Wg                sync.WaitGroup
 }
 
 // NewJobQueue creates a queue with the given capacity, worker count, and dependencies.
-func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber, llmClient *llm.Client) *JobQueue {
+func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber, llmClient *llm.Client, llmMaxRetries int) *JobQueue {
 	return &JobQueue{
 		jobs:              make(chan *Job, maxQueueSize),
 		workers:           numWorkers,
@@ -36,6 +37,7 @@ func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, 
 		transcriber:       transcriber,
 		transcribeTimeout: transcribeTimeout,
 		llmClient:         llmClient,
+		llmMaxRetries:     llmMaxRetries,
 		stopCh:            make(chan struct{}),
 	}
 }
@@ -105,15 +107,19 @@ func (q *JobQueue) processJob(job *Job) {
 	// Build result with transcription.
 	job.Result = &JobResult{Transcription: text}
 
-	// Run LLM extraction (best-effort — failure does not fail the job).
+	// Run LLM extraction with retries — extraction failure fails the job.
 	if q.llmClient != nil {
-		extraction, llmErr := q.llmClient.Extract(ctx, text)
+		extraction, llmErr := q.llmClient.ExtractWithRetry(ctx, text, q.llmMaxRetries)
 		if llmErr != nil {
-			log.Printf("job %s llm extraction failed: %v", job.ID, llmErr)
-		} else {
-			job.Result.Extraction = extraction
-			log.Printf("job %s extraction: price=%q place=%q category=%q", job.ID, extraction.Price, extraction.Place, extraction.Category)
+			job.Status = JobFailed
+			job.Error = llmErr.Error()
+			job.UpdatedAt = time.Now()
+			q.store.Save(job)
+			log.Printf("job %s extraction failed, marking job failed: %v", job.ID, llmErr)
+			return
 		}
+		job.Result.Extraction = extraction
+		log.Printf("job %s extraction: price=%q place=%q category=%q", job.ID, extraction.Price, extraction.Place, extraction.Category)
 	}
 
 	job.Status = JobDone

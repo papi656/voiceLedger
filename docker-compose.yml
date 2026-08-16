@@ -40,6 +40,7 @@ services:
       - WHISPER_PORT=8080
       - LLM_HOST=llm
       - LLM_PORT=8081
+      - LLM_MAX_RETRIES=3
       - MAX_FILE_SIZE_MB=25
       - RATE_LIMIT_PER_IP=30
       - NUM_WORKERS=1

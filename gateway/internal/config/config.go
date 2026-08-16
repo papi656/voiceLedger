@@ -31,6 +31,7 @@ type Config struct {
 	LLMHost               string
 	LLMPort               string
 	LLMTimeoutSec         int
+	LLMMaxRetries         int
 }
 
 // Load reads environment variables and returns a populated Config with sane defaults.
@@ -57,6 +58,7 @@ func Load() *Config {
 		LLMHost:               envStr("LLM_HOST", "llm"),
 		LLMPort:               envStr("LLM_PORT", "8081"),
 		LLMTimeoutSec:         envInt("LLM_TIMEOUT_SEC", 120),
+		LLMMaxRetries:         envInt("LLM_MAX_RETRIES", 3),
 		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
 	}
 }

@@ -41,6 +41,7 @@ func main() {
 		store,
 		whisperClient,
 		llmClient,
+		cfg.LLMMaxRetries,
 	)
 
 	cleanupStop := make(chan struct{})

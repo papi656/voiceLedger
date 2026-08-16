@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -78,6 +79,32 @@ func (c *Client) Extract(ctx context.Context, text string) (*Extraction, error) 
 	}
 
 	return parseResponse(respBody)
+}
+
+// ExtractWithRetry sends the text to the LLM for extraction, retrying up to
+// maxRetries additional times (maxRetries+1 attempts total) with exponential
+// backoff (1s, 2s, 4s, ...) between attempts. Returns the first successful
+// extraction, or an error if all attempts fail.
+func (c *Client) ExtractWithRetry(ctx context.Context, text string, maxRetries int) (*Extraction, error) {
+	total := maxRetries + 1
+	var lastErr error
+	for attempt := 1; attempt <= total; attempt++ {
+		extraction, err := c.Extract(ctx, text)
+		if err == nil {
+			return extraction, nil
+		}
+		lastErr = err
+		if attempt < total {
+			delay := time.Duration(1<<(attempt-1)) * time.Second
+			log.Printf("llm extraction attempt %d/%d failed: %v; retrying in %s", attempt, total, err, delay)
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("llm extraction canceled during retry wait: %w", ctx.Err())
+			case <-time.After(delay):
+			}
+		}
+	}
+	return nil, fmt.Errorf("llm extraction failed after %d attempts: %w", total, lastErr)
 }
 
 // parseResponse extracts the assistant message content from the OpenAI-compatible
