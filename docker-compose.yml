@@ -41,6 +41,18 @@ services:
       - LLM_HOST=llm
       - LLM_PORT=8081
       - LLM_MAX_RETRIES=3
+      - GOOGLE_SHEET_ENABLED=false
+      - GOOGLE_SHEET_TAB=Sheet1
+      - GOOGLE_SHEET_MAX_RETRIES=3
+      # Google Sheets export (optional). To enable: save your service account
+      # JSON key as ./secrets/service-account.json (gitignored), share your
+      # sheet with the service account email as Editor, then uncomment:
+      # - GOOGLE_SHEET_ENABLED=true
+      # - GOOGLE_SHEET_KEY_FILE=/run/secrets/service-account.json
+      # - GOOGLE_SHEET_ID=<spreadsheet-id-from-url>
+      #   and add the mount (under the service, same indentation as environment):
+      #   volumes:
+      #     - ./secrets/service-account.json:/run/secrets/service-account.json:ro
       - MAX_FILE_SIZE_MB=25
       - RATE_LIMIT_PER_IP=30
       - NUM_WORKERS=1

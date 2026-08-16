@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
 	"gateway/internal/llm"
+	"gateway/internal/sheets"
 )
 
 // Transcriber is the interface for sending audio to the transcription service.
@@ -24,12 +26,14 @@ type JobQueue struct {
 	transcribeTimeout time.Duration
 	llmClient         *llm.Client
 	llmMaxRetries     int
+	sheetsClient      *sheets.Client
+	sheetsMaxRetries  int
 	stopCh            chan struct{}
 	Wg                sync.WaitGroup
 }
 
 // NewJobQueue creates a queue with the given capacity, worker count, and dependencies.
-func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber, llmClient *llm.Client, llmMaxRetries int) *JobQueue {
+func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, store *JobStore, transcriber Transcriber, llmClient *llm.Client, llmMaxRetries int, sheetsClient *sheets.Client, sheetsMaxRetries int) *JobQueue {
 	return &JobQueue{
 		jobs:              make(chan *Job, maxQueueSize),
 		workers:           numWorkers,
@@ -38,6 +42,8 @@ func NewJobQueue(maxQueueSize, numWorkers int, transcribeTimeout time.Duration, 
 		transcribeTimeout: transcribeTimeout,
 		llmClient:         llmClient,
 		llmMaxRetries:     llmMaxRetries,
+		sheetsClient:      sheetsClient,
+		sheetsMaxRetries:  sheetsMaxRetries,
 		stopCh:            make(chan struct{}),
 	}
 }
@@ -120,6 +126,23 @@ func (q *JobQueue) processJob(job *Job) {
 		}
 		job.Result.Extraction = extraction
 		log.Printf("job %s extraction: price=%q place=%q category=%q", job.ID, extraction.Price, extraction.Place, extraction.Category)
+
+		// Append the extraction row to Google Sheets (best-effort with retries
+		// and dedupe by job_id — a sheet outage must not fail the job).
+		if q.sheetsClient != nil {
+			row := []string{
+				job.ID,
+				extraction.Date,
+				extraction.Price,
+				extraction.Place,
+				extraction.Category,
+				strings.TrimSpace(text),
+				job.CreatedAt.Format(time.RFC3339),
+			}
+			if err := q.sheetsClient.AppendRowWithRetry(ctx, row, q.sheetsMaxRetries); err != nil {
+				log.Printf("job %s google sheets append failed (job still done): %v", job.ID, err)
+			}
+		}
 	}
 
 	job.Status = JobDone

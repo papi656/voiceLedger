@@ -9,57 +9,69 @@ import (
 
 // Config holds all gateway configuration values sourced from environment variables.
 type Config struct {
-	GatewayPort           string
-	CORSAllowedOrigins    string
-	RateLimitPerIP        int
-	RateBurstPerIP        int
-	MaxFileSizeMB         int
-	AllowedFormats        []string
-	WhisperHost           string
-	WhisperPort           string
-	MaxBodySizeMB         int
-	ReadTimeoutSec        int
-	WriteTimeoutSec       int
-	IdleTimeoutSec        int
-	WhisperTimeoutSec     int
-	ConvertTimeoutSec     int
-	FFMPEGPath            string
-	NumWorkers            int
-	MaxQueueSize          int
-	JobTTLSec             int
-	JobCleanupIntervalSec int
-	LLMHost               string
-	LLMPort               string
-	LLMTimeoutSec         int
-	LLMMaxRetries         int
+	GatewayPort            string
+	CORSAllowedOrigins     string
+	RateLimitPerIP         int
+	RateBurstPerIP         int
+	MaxFileSizeMB          int
+	AllowedFormats         []string
+	WhisperHost            string
+	WhisperPort            string
+	MaxBodySizeMB          int
+	ReadTimeoutSec         int
+	WriteTimeoutSec        int
+	IdleTimeoutSec         int
+	WhisperTimeoutSec      int
+	ConvertTimeoutSec      int
+	FFMPEGPath             string
+	NumWorkers             int
+	MaxQueueSize           int
+	JobTTLSec              int
+	JobCleanupIntervalSec  int
+	LLMHost                string
+	LLMPort                string
+	LLMTimeoutSec          int
+	LLMMaxRetries          int
+	GoogleSheetsEnabled    bool
+	GoogleSheetsKeyPath    string
+	GoogleSheetsSheetID    string
+	GoogleSheetsTab        string
+	GoogleSheetsTimeoutSec int
+	GoogleSheetsMaxRetries int
 }
 
 // Load reads environment variables and returns a populated Config with sane defaults.
 func Load() *Config {
 	return &Config{
-		GatewayPort:           envStr("PORT", "9090"),
-		CORSAllowedOrigins:    envStr("CORS_ALLOWED_ORIGINS", "*"),
-		RateLimitPerIP:        envInt("RATE_LIMIT_PER_IP", 30),
-		RateBurstPerIP:        envInt("RATE_BURST_PER_IP", 30),
-		MaxFileSizeMB:         envInt("MAX_FILE_SIZE_MB", 25),
-		WhisperHost:           envStr("WHISPER_HOST", "whisper"),
-		WhisperPort:           envStr("WHISPER_PORT", "8080"),
-		MaxBodySizeMB:         envInt("MAX_BODY_SIZE_MB", 30),
-		ReadTimeoutSec:        envInt("READ_TIMEOUT_SEC", 10),
-		WriteTimeoutSec:       envInt("WRITE_TIMEOUT_SEC", 30),
-		IdleTimeoutSec:        envInt("IDLE_TIMEOUT_SEC", 120),
-		WhisperTimeoutSec:     envInt("WHISPER_TIMEOUT_SEC", 600),
-		ConvertTimeoutSec:     envInt("CONVERT_TIMEOUT_SEC", 120),
-		FFMPEGPath:            envStr("FFMPEG_PATH", "ffmpeg"),
-		NumWorkers:            envInt("NUM_WORKERS", 1),
-		MaxQueueSize:          envInt("MAX_QUEUE_SIZE", 50),
-		JobTTLSec:             envInt("JOB_TTL_SEC", 3600),
-		JobCleanupIntervalSec: envInt("JOB_CLEANUP_INTERVAL_SEC", 300),
-		LLMHost:               envStr("LLM_HOST", "llm"),
-		LLMPort:               envStr("LLM_PORT", "8081"),
-		LLMTimeoutSec:         envInt("LLM_TIMEOUT_SEC", 120),
-		LLMMaxRetries:         envInt("LLM_MAX_RETRIES", 3),
-		AllowedFormats:        splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
+		GatewayPort:            envStr("PORT", "9090"),
+		CORSAllowedOrigins:     envStr("CORS_ALLOWED_ORIGINS", "*"),
+		RateLimitPerIP:         envInt("RATE_LIMIT_PER_IP", 30),
+		RateBurstPerIP:         envInt("RATE_BURST_PER_IP", 30),
+		MaxFileSizeMB:          envInt("MAX_FILE_SIZE_MB", 25),
+		WhisperHost:            envStr("WHISPER_HOST", "whisper"),
+		WhisperPort:            envStr("WHISPER_PORT", "8080"),
+		MaxBodySizeMB:          envInt("MAX_BODY_SIZE_MB", 30),
+		ReadTimeoutSec:         envInt("READ_TIMEOUT_SEC", 10),
+		WriteTimeoutSec:        envInt("WRITE_TIMEOUT_SEC", 30),
+		IdleTimeoutSec:         envInt("IDLE_TIMEOUT_SEC", 120),
+		WhisperTimeoutSec:      envInt("WHISPER_TIMEOUT_SEC", 600),
+		ConvertTimeoutSec:      envInt("CONVERT_TIMEOUT_SEC", 120),
+		FFMPEGPath:             envStr("FFMPEG_PATH", "ffmpeg"),
+		NumWorkers:             envInt("NUM_WORKERS", 1),
+		MaxQueueSize:           envInt("MAX_QUEUE_SIZE", 50),
+		JobTTLSec:              envInt("JOB_TTL_SEC", 3600),
+		JobCleanupIntervalSec:  envInt("JOB_CLEANUP_INTERVAL_SEC", 300),
+		LLMHost:                envStr("LLM_HOST", "llm"),
+		LLMPort:                envStr("LLM_PORT", "8081"),
+		LLMTimeoutSec:          envInt("LLM_TIMEOUT_SEC", 120),
+		LLMMaxRetries:          envInt("LLM_MAX_RETRIES", 3),
+		GoogleSheetsEnabled:    envBool("GOOGLE_SHEET_ENABLED", false),
+		GoogleSheetsKeyPath:    envStr("GOOGLE_SHEET_KEY_FILE", ""),
+		GoogleSheetsSheetID:    envStr("GOOGLE_SHEET_ID", ""),
+		GoogleSheetsTab:        envStr("GOOGLE_SHEET_TAB", "Sheet1"),
+		GoogleSheetsTimeoutSec: envInt("GOOGLE_SHEET_TIMEOUT_SEC", 15),
+		GoogleSheetsMaxRetries: envInt("GOOGLE_SHEET_MAX_RETRIES", 3),
+		AllowedFormats:         splitComma(envStr("ALLOWED_FORMATS", "wav,mp3,ogg,opus,m4a,flac")),
 	}
 }
 
@@ -79,6 +91,19 @@ func envInt(key string, fallback int) int {
 		log.Printf("invalid value for %s=%q, using default %d", key, v, fallback)
 	}
 	return fallback
+}
+
+func envBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		log.Printf("invalid value for %s=%q, using default %v", key, v, fallback)
+		return fallback
+	}
+	return b
 }
 
 func splitComma(s string) []string {

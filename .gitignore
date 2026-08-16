@@ -13,6 +13,9 @@ llm-package/lib*.so.*
 # build artifacts
 gateway/gateway
 
+# google service account keys
+secrets/
+
 # audio files
 *.wav
 *.mp3

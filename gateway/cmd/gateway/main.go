@@ -14,6 +14,7 @@ import (
 	"gateway/internal/llm"
 	"gateway/internal/ratelimit"
 	"gateway/internal/server"
+	"gateway/internal/sheets"
 	"gateway/internal/transcription"
 	"gateway/internal/whisper"
 )
@@ -34,6 +35,21 @@ func main() {
 		time.Duration(cfg.LLMTimeoutSec)*time.Second,
 	)
 
+	var sheetsClient *sheets.Client
+	if cfg.GoogleSheetsEnabled {
+		sc, err := sheets.NewClient(
+			cfg.GoogleSheetsKeyPath,
+			cfg.GoogleSheetsSheetID,
+			cfg.GoogleSheetsTab,
+			time.Duration(cfg.GoogleSheetsTimeoutSec)*time.Second,
+		)
+		if err != nil {
+			log.Fatalf("google sheets client init failed: %v", err)
+		}
+		sheetsClient = sc
+		log.Printf("google sheets export enabled: sheet=%s tab=%s", cfg.GoogleSheetsSheetID, cfg.GoogleSheetsTab)
+	}
+
 	queue := transcription.NewJobQueue(
 		cfg.MaxQueueSize,
 		cfg.NumWorkers,
@@ -42,6 +58,8 @@ func main() {
 		whisperClient,
 		llmClient,
 		cfg.LLMMaxRetries,
+		sheetsClient,
+		cfg.GoogleSheetsMaxRetries,
 	)
 
 	cleanupStop := make(chan struct{})

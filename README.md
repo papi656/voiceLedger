@@ -112,6 +112,34 @@ After transcription, the gateway sends the text to an LLM server (llama.cpp, gem
 └── docker-compose.yml          # Orchestrates gateway + whisper + llm
 ```
 
+## Google Sheets export (optional)
+
+After a successful job, the gateway appends the extracted details to a Google
+Spreadsheet as a row:
+
+`job_id | date | price | place | category | transcription | created_at`
+
+Setup (one-time, ~10 min):
+
+1. Google Cloud console → create a project (any Google account works, no billing needed)
+2. Enable the **Google Sheets API**
+3. IAM & Admin → **Service Accounts** → create one → **Add Key → JSON** → save as `secrets/service-account.json` (gitignored)
+4. Share your spreadsheet with the service account email (`...@...iam.gserviceaccount.com`) as **Editor**
+5. In `docker-compose.yml`, uncomment the `GOOGLE_SHEET_*` env vars and the volume mount
+
+| Variable | Default | Description |
+|---|---|---|
+| `GOOGLE_SHEET_ENABLED` | `false` | Master switch |
+| `GOOGLE_SHEET_KEY_FILE` | — | Path to the service account JSON (inside the container) |
+| `GOOGLE_SHEET_ID` | — | Spreadsheet ID from the sheet URL |
+| `GOOGLE_SHEET_TAB` | `Sheet1` | Tab to append to |
+| `GOOGLE_SHEET_TIMEOUT_SEC` | `15` | Per-request timeout |
+| `GOOGLE_SHEET_MAX_RETRIES` | `3` | Retries (4 attempts, backoff 1s/2s/4s) |
+
+Sheet writes are **best-effort with retries** and dedupe by `job_id` — a Google
+outage never fails the transcription job. Rows are appended only when extraction
+succeeds. Uses the Sheets API v4 directly (service-account JWT, stdlib-only).
+
 ## Expose to the internet
 
 See [`docs/expose-internet.md`](docs/expose-internet.md) for Tailscale Funnel setup.
