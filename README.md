@@ -126,7 +126,7 @@ Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential back
 After a successful job, the gateway appends the extracted details to a Google
 Spreadsheet as a row in the spreadsheet's own style (the April, 2026 layout):
 
-`Date | Type | Amount | Comments` — plus the `job_id` in column E (for dedupe)
+`Date | Type | Amount | Comments` — no job metadata is written to the sheet
 
 - **Date** — a real date (Excel serial), rendered per the tab's date format
 - **Type** — the extracted category, constrained to the sheet's own Type
@@ -157,7 +157,8 @@ Setup (one-time, ~10 min):
 | `GOOGLE_SHEET_TIMEOUT_SEC` | `15` | Per-request timeout |
 | `GOOGLE_SHEET_MAX_RETRIES` | `3` | Retries (4 attempts, backoff 1s/2s/4s) |
 
-Sheet writes are **best-effort with retries** and dedupe by `job_id` — a Google
+Sheet writes are **best-effort with retries**, deduped by matching the row's own
+values (date/type/amount/comments), so re-submitting the same recording never duplicates a row. A Google
 outage never fails the transcription job. Rows are appended only when extraction
 succeeds. Uses the Sheets API v4 directly (service-account JWT, stdlib-only).
 

@@ -164,15 +164,14 @@ func (c *Client) TabExists(ctx context.Context, name string) (bool, error) {
 
 // BuildRow renders one append row in the spreadsheet's own style (April, 2026
 // layout): Date | Type | Amount | Comments. The date is an Excel serial number
-// (renders per the tab's date format), the amount is a plain number (so SUM
-// works), and the job_id lives in column E for dedupe.
-func BuildRow(jobID, date, price, place, category string) []any {
+// (renders per the tab's date format) and the amount is a plain number (so SUM
+// works). No job metadata is written to the sheet.
+func BuildRow(date, price, place, category string) []any {
 	return []any{
 		dateSerial(date),
 		capitalize(category),
 		parseAmount(price),
 		place,
-		jobID,
 	}
 }
 
@@ -358,19 +357,18 @@ func (c *Client) readRange(ctx context.Context, tok, rng string) ([][]any, error
 	return vr.Values, nil
 }
 
-// AppendRowWithRetry writes one row to the given tab, deduping by the job_id
-// column (job_id) and retrying up to maxRetries additional times with
-// exponential backoff (1s, 2s, 4s, ...) on any failure.
+// AppendRowWithRetry writes one row to the given tab, deduping by the row's own
+// values (date, type, amount, comments) and retrying up to maxRetries
+// additional times with exponential backoff (1s, 2s, 4s, ...) on any failure.
 func (c *Client) AppendRowWithRetry(ctx context.Context, tab string, row []any, maxRetries int) error {
 	total := maxRetries + 1
 	var lastErr error
 	for attempt := 1; attempt <= total; attempt++ {
-		jobID, _ := row[0].(string)
-		exists, err := c.RowExists(ctx, tab, jobID)
+		matches, err := c.RowMatches(ctx, tab, row)
 		if err != nil {
 			lastErr = err
-		} else if exists {
-			log.Printf("sheets: row for job %s already present in %q, skipping append", row[0], tab)
+		} else if matches {
+			log.Printf("sheets: matching row already present in %q, skipping append", tab)
 			return nil
 		} else if err := c.AppendRow(ctx, tab, row); err == nil {
 			return nil
@@ -390,13 +388,14 @@ func (c *Client) AppendRowWithRetry(ctx context.Context, tab string, row []any, 
 	return fmt.Errorf("sheets append to %q failed after %d attempts: %w", tab, total, lastErr)
 }
 
-// RowExists reports whether jobID appears in the first column of the given tab.
-func (c *Client) RowExists(ctx context.Context, tab, jobID string) (bool, error) {
+// RowMatches reports whether a row with the same values already exists in the
+// tab (columns A:D). Used as a dedupe key since the sheet stores no job id.
+func (c *Client) RowMatches(ctx context.Context, tab string, row []any) (bool, error) {
 	tok, err := c.provider.token(ctx)
 	if err != nil {
 		return false, err
 	}
-	u := fmt.Sprintf("%s/%s/values/%s", baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "E1:E")))
+	u := fmt.Sprintf("%s/%s/values/%s?valueRenderOption=UNFORMATTED_VALUE", baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "A1:D1000")))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return false, fmt.Errorf("building dedupe request: %w", err)
@@ -417,17 +416,55 @@ func (c *Client) RowExists(ctx context.Context, tab, jobID string) (bool, error)
 	}
 
 	var vr struct {
-		Values [][]string `json:"values"`
+		Values [][]any `json:"values"`
 	}
 	if err := json.Unmarshal(body, &vr); err != nil {
 		return false, fmt.Errorf("parsing dedupe response: %w", err)
 	}
-	for _, r := range vr.Values {
-		if len(r) > 0 && r[0] == jobID {
+	want := sanitizeRow(row)
+	for _, existing := range vr.Values {
+		if len(existing) < len(want) {
+			continue
+		}
+		match := true
+		for i, w := range want {
+			if !cellEqual(existing[i], w) {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true, nil
 		}
 	}
 	return false, nil
+}
+
+// cellEqual compares a stored cell value with our intended value. Numbers and
+// numeric strings are compared numerically (Sheets may store "3000" as 3000).
+func cellEqual(stored, want any) bool {
+	sf, sok := toFloat(stored)
+	wf, wok := toFloat(want)
+	if sok && wok {
+		return sf == wf
+	}
+	return fmt.Sprint(stored) == fmt.Sprint(want)
+}
+
+// toFloat converts a numeric value (or numeric string) to float64.
+func toFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		f, err := strconv.ParseFloat(n, 64)
+		return f, err == nil
+	default:
+		return 0, false
+	}
 }
 
 // AppendRow appends a single row to the given tab (spreadsheets.values.append).
@@ -443,7 +480,7 @@ func (c *Client) AppendRow(ctx context.Context, tab string, row []any) error {
 		return fmt.Errorf("marshaling append body: %w", err)
 	}
 	u := fmt.Sprintf("%s/%s/values/%s:append?valueInputOption=RAW&insertDataOption=OVERWRITE",
-		baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "A1:E")))
+		baseURL, url.PathEscape(c.sheetID), url.PathEscape(a1Range(tab, "A1:D")))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("building append request: %w", err)
@@ -553,7 +590,7 @@ func dataRowStyleRequest(sheetID int64, row int) map[string]any {
 				"startRowIndex":    row - 1,
 				"endRowIndex":      row,
 				"startColumnIndex": 0,
-				"endColumnIndex":   5,
+				"endColumnIndex":   4,
 			},
 			"cell": map[string]any{
 				"userEnteredFormat": map[string]any{

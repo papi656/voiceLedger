@@ -145,9 +145,9 @@ func TestDateSerial(t *testing.T) {
 }
 
 func TestBuildRow(t *testing.T) {
-	row := BuildRow("abc123", "2026-06-24", "¥2,853 yen", "Sanwa", "shopping")
-	if len(row) != 5 {
-		t.Fatalf("BuildRow len = %d, want 5", len(row))
+	row := BuildRow("2026-06-24", "¥2,853 yen", "Sanwa", "shopping")
+	if len(row) != 4 {
+		t.Fatalf("BuildRow len = %d, want 4", len(row))
 	}
 	if row[0] != dateSerial("2026-06-24") {
 		t.Errorf("date cell = %v", row[0])
@@ -158,8 +158,28 @@ func TestBuildRow(t *testing.T) {
 	if row[2] != 2853.0 {
 		t.Errorf("amount cell = %v, want 2853", row[2])
 	}
-	if row[3] != "Sanwa" || row[4] != "abc123" {
-		t.Errorf("comments/jobid cells = %v, %v", row[3], row[4])
+	if row[3] != "Sanwa" {
+		t.Errorf("comments cell = %v, want Sanwa", row[3])
+	}
+}
+
+func TestCellEqual(t *testing.T) {
+	cases := []struct {
+		a, b any
+		want bool
+	}{
+		{3000.0, 3000.0, true},
+		{3000.0, "3000", true},
+		{"3000 yen", "3000 yen", true},
+		{"3000", "3000.0", true},
+		{"Grocery", "Grocery", true},
+		{"Grocery", "Shopping", false},
+		{"", "", true},
+	}
+	for _, c := range cases {
+		if got := cellEqual(c.a, c.b); got != c.want {
+			t.Errorf("cellEqual(%v, %v) = %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }
 

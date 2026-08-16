@@ -133,11 +133,11 @@ func (q *JobQueue) processJob(job *Job) {
 			if tab == "" {
 				tab = q.sheetsClient.DefaultTab
 			}
-			row := sheets.BuildRow(job.ID, extraction.Date, extraction.Price, extraction.Place, extraction.Category)
+			row := sheets.BuildRow(extraction.Date, extraction.Price, extraction.Place, extraction.Category)
 			if err := q.sheetsClient.AppendRowWithRetry(ctx, tab, row, q.sheetsMaxRetries); err != nil {
 				log.Printf("job %s google sheets append failed (job still done): %v", job.ID, err)
 			} else {
-				log.Printf("job %s appended to google sheets (tab %q)", job.ID, tab)
+				log.Printf("job %s google sheets export done (tab %q)", job.ID, tab)
 			}
 		}
 	}
