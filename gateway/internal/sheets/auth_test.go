@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestBuildAssertion verifies the service-account JWT is well-formed and
@@ -93,12 +94,72 @@ func TestBuildAssertion(t *testing.T) {
 }
 
 func TestSanitizeRow(t *testing.T) {
-	got := sanitizeRow([]string{"a", "=HYPERLINK(\"http://evil\")", "b"})
-	want := []string{"a", "'=HYPERLINK(\"http://evil\")", "b"}
+	got := sanitizeRow([]any{"a", "=HYPERLINK(\"http://evil\")", 3000.0, "b"})
+	want := []any{"a", "'=HYPERLINK(\"http://evil\")", 3000.0, "b"}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Errorf("sanitizeRow[%d] = %q, want %q", i, got[i], want[i])
+			t.Errorf("sanitizeRow[%d] = %v, want %v", i, got[i], want[i])
 		}
+	}
+}
+
+func TestParseAmount(t *testing.T) {
+	cases := []struct {
+		in   string
+		want float64
+		ok   bool
+	}{
+		{"3000 yen", 3000, true},
+		{"¥2,853", 2853, true},
+		{"1,234.56 usd", 1234.56, true},
+		{"about 5000", 5000, true},
+		{"no price here", 0, false},
+		{"", 0, false},
+	}
+	for _, c := range cases {
+		got := parseAmount(c.in)
+		if !c.ok {
+			if got != "" {
+				t.Errorf("parseAmount(%q) = %v, want empty", c.in, got)
+			}
+			continue
+		}
+		f, isNum := got.(float64)
+		if !isNum || f != c.want {
+			t.Errorf("parseAmount(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDateSerial(t *testing.T) {
+	// 2026-06-24: verify against a known serial (2026-06-24 = 46202 days after 1899-12-30).
+	got := dateSerial("2026-06-24")
+	want := float64(time.Date(2026, 6, 24, 0, 0, 0, 0, time.UTC).Sub(excelEpoch).Hours() / 24)
+	if got != want {
+		t.Errorf("dateSerial = %v, want %v", got, want)
+	}
+	// Invalid input falls back to today (still a number).
+	if got := dateSerial("garbage"); got <= 40000 {
+		t.Errorf("dateSerial fallback = %v, want > 40000", got)
+	}
+}
+
+func TestBuildRow(t *testing.T) {
+	row := BuildRow("abc123", "2026-06-24", "¥2,853 yen", "Sanwa", "shopping")
+	if len(row) != 5 {
+		t.Fatalf("BuildRow len = %d, want 5", len(row))
+	}
+	if row[0] != dateSerial("2026-06-24") {
+		t.Errorf("date cell = %v", row[0])
+	}
+	if row[1] != "Shopping" {
+		t.Errorf("type cell = %v, want Shopping", row[1])
+	}
+	if row[2] != 2853.0 {
+		t.Errorf("amount cell = %v, want 2853", row[2])
+	}
+	if row[3] != "Sanwa" || row[4] != "abc123" {
+		t.Errorf("comments/jobid cells = %v, %v", row[3], row[4])
 	}
 }
 

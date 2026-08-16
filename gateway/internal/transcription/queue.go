@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -134,15 +133,7 @@ func (q *JobQueue) processJob(job *Job) {
 			if tab == "" {
 				tab = q.sheetsClient.DefaultTab
 			}
-			row := []string{
-				job.ID,
-				extraction.Date,
-				extraction.Price,
-				extraction.Place,
-				extraction.Category,
-				strings.TrimSpace(text),
-				job.CreatedAt.Format(time.RFC3339),
-			}
+			row := sheets.BuildRow(job.ID, extraction.Date, extraction.Price, extraction.Place, extraction.Category)
 			if err := q.sheetsClient.AppendRowWithRetry(ctx, tab, row, q.sheetsMaxRetries); err != nil {
 				log.Printf("job %s google sheets append failed (job still done): %v", job.ID, err)
 			} else {

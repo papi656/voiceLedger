@@ -124,9 +124,18 @@ Extraction is retried up to `LLM_MAX_RETRIES` times (default 3, exponential back
 ## Google Sheets export (optional)
 
 After a successful job, the gateway appends the extracted details to a Google
-Spreadsheet as a row:
+Spreadsheet as a row in the spreadsheet's own style (the April, 2026 layout):
 
-`job_id | date | price | place | category | transcription | created_at`
+`Date | Type | Amount | Comments` — plus the `job_id` in column E (for dedupe)
+
+- **Date** — a real date (Excel serial), rendered per the tab's date format
+- **Type** — the extracted category, capitalized (`shopping` → `Shopping`)
+- **Amount** — the **numeric value only** (`3000 yen` → `3000`, `¥2,853` → `2853`),
+  written as a plain number so SUM-style formulas work
+- **Comments** — the extracted place (e.g. `Sanwa`)
+
+The appended row gets the tab's number formats applied (date on A, currency on
+C), matching rows entered by hand.
 
 Setup (one-time, ~10 min):
 
